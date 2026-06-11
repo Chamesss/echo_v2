@@ -1,0 +1,4 @@
+packages:
+  - "chat-server"
+  - "chat-front"
+  - "packages/*"

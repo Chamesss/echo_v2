@@ -1,0 +1,23 @@
+{
+  "name": "chat-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n front,server,studio -c green,blue,magenta \"pnpm -F chat-front exec vite\" \"pnpm -F chat-server exec tsx watch src/server.ts\" \"pnpm -F chat-server exec drizzle-kit studio --port 8000 --verbose\"",
+    "dev:app": "concurrently -n front,server -c green,blue \"pnpm -F chat-front exec vite\" \"pnpm -F chat-server exec tsx watch src/server.ts\"",
+    "dev:server": "pnpm --filter chat-server dev",
+    "dev:front": "pnpm --filter chat-front dev",
+    "db:migrate": "pnpm --filter chat-server db:migrate",
+    "db:studio": "pnpm --filter chat-server db:studio",
+    "build": "pnpm -r build"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "esbuild": "^0.25.0"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
+  }
+}
