@@ -1,7 +1,15 @@
 import type { WebSocket } from "ws";
 import { logger } from "../../shared/logger/logger.js";
 import { backplane, type Backplane } from "./backplane.js";
-import { type ChannelEvent, type ServerFrame } from "./protocol.js";
+import {
+  isChannelEvent,
+  userNotifyChannel,
+  workspaceNotifyChannel,
+  type RealtimeEvent,
+  type ServerFrame,
+  type UserEvent,
+  type UserServerFrame,
+} from "./protocol.js";
 
 /**
  * In-process registry of live sockets and their channel subscriptions, plus the
@@ -32,26 +40,64 @@ interface WorkspaceEntry {
   unsubscribe: () => void;
 }
 
+interface UserEntry {
+  sockets: Set<WebSocket>;
+  /** Backplane unsubscribe handle, freed when the user's last user-socket leaves. */
+  unsubscribe: () => void;
+}
+
 export class RealtimeHub {
   private readonly contexts = new Map<WebSocket, SocketContext>();
   private readonly workspaces = new Map<string, WorkspaceEntry>();
+  // The awareness layer: user-scoped sockets (one or more per user, across
+  // whatever workspaces/dashboard they have open) that receive `UserEvent`s.
+  private readonly userSockets = new Map<string, UserEntry>();
+  private readonly userOf = new Map<WebSocket, string>();
 
   constructor(private readonly bus: Backplane) {}
 
-  /** Register a freshly-authenticated socket (no channel subscriptions yet). */
+  /** Register a freshly-authenticated workspace socket (no channel subscriptions yet). */
   add(ws: WebSocket, ctx: { userId: string; workspaceId: string }): void {
     this.contexts.set(ws, { ...ctx, channels: new Set() });
 
     let entry = this.workspaces.get(ctx.workspaceId);
     if (!entry) {
       const channelSubs = new Map<string, Set<WebSocket>>();
-      const unsubscribe = this.bus.subscribe(ctx.workspaceId, (event) =>
-        this.deliverLocal(ctx.workspaceId, event),
+      const unsubscribe = this.bus.subscribe(workspaceNotifyChannel(ctx.workspaceId), (event) =>
+        this.deliverLocal(ctx.workspaceId, event as RealtimeEvent),
       );
       entry = { sockets: new Set(), channelSubs, unsubscribe };
       this.workspaces.set(ctx.workspaceId, entry);
     }
     entry.sockets.add(ws);
+  }
+
+  /** Register an awareness (user) socket — receives the user's `UserEvent`s only. */
+  addUserSocket(ws: WebSocket, ctx: { userId: string }): void {
+    this.userOf.set(ws, ctx.userId);
+    let entry = this.userSockets.get(ctx.userId);
+    if (!entry) {
+      const unsubscribe = this.bus.subscribe(userNotifyChannel(ctx.userId), (event) =>
+        this.deliverUser(ctx.userId, event as UserEvent),
+      );
+      entry = { sockets: new Set(), unsubscribe };
+      this.userSockets.set(ctx.userId, entry);
+    }
+    entry.sockets.add(ws);
+  }
+
+  /** Tear down an awareness socket; releases the user LISTEN if it was the last. */
+  removeUserSocket(ws: WebSocket): void {
+    const userId = this.userOf.get(ws);
+    this.userOf.delete(ws);
+    if (!userId) return;
+    const entry = this.userSockets.get(userId);
+    if (!entry) return;
+    entry.sockets.delete(ws);
+    if (entry.sockets.size === 0) {
+      entry.unsubscribe();
+      this.userSockets.delete(userId);
+    }
   }
 
   /** Subscribe a socket to a channel (caller has already authorized access). */
@@ -110,18 +156,53 @@ export class RealtimeHub {
    * sockets happens via the LISTEN loopback (see `deliverLocal`). Called by the
    * message engine after a write commits.
    */
-  async publish(workspaceId: string, event: ChannelEvent): Promise<void> {
-    await this.bus.publish(workspaceId, event);
+  async publish(workspaceId: string, event: RealtimeEvent): Promise<void> {
+    await this.bus.publish(workspaceNotifyChannel(workspaceId), event);
   }
 
-  private deliverLocal(workspaceId: string, event: ChannelEvent): void {
+  /** Publish a user-scoped awareness event (unread bump / notification). */
+  async publishToUser(userId: string, event: UserEvent): Promise<void> {
+    await this.bus.publish(userNotifyChannel(userId), event);
+  }
+
+  /**
+   * Publish many user-scoped events in a single backplane round-trip — the
+   * message fan-out path, where one message notifies every other member.
+   */
+  async publishToUsers(entries: ReadonlyArray<{ userId: string; event: UserEvent }>): Promise<void> {
+    if (entries.length === 0) return;
+    await this.bus.publishMany(
+      entries.map((e) => ({ channel: userNotifyChannel(e.userId), event: e.event })),
+    );
+  }
+
+  private deliverUser(userId: string, event: UserEvent): void {
+    const entry = this.userSockets.get(userId);
+    if (!entry || entry.sockets.size === 0) return;
+    const frame: UserServerFrame = { t: "event", event };
+    const data = JSON.stringify(frame);
+    for (const ws of entry.sockets) {
+      if (ws.readyState === 1) {
+        ws.send(data, (err) => {
+          if (err) logger.warn({ err: err.message }, "realtime: failed to send user frame");
+        });
+      }
+    }
+  }
+
+  private deliverLocal(workspaceId: string, event: RealtimeEvent): void {
     const entry = this.workspaces.get(workspaceId);
     if (!entry) return;
-    const subs = entry.channelSubs.get(event.channelId);
-    if (!subs || subs.size === 0) return;
+    // Channel events reach only that channel's subscribers; workspace events
+    // (roster changes) aren't tied to a channel, so they fan out to every
+    // socket connected to the workspace.
+    const targets = isChannelEvent(event)
+      ? entry.channelSubs.get(event.channelId)
+      : entry.sockets;
+    if (!targets || targets.size === 0) return;
     const frame: ServerFrame = { t: "event", event };
     const data = JSON.stringify(frame);
-    for (const ws of subs) {
+    for (const ws of targets) {
       // 1 === WebSocket.OPEN; avoid importing the value just for the enum.
       if (ws.readyState === 1) {
         ws.send(data, (err) => {

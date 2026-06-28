@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ChannelEvent } from "@server/infrastructure/realtime/protocol";
+import { isChannelEvent, type RealtimeEvent } from "@server/infrastructure/realtime/protocol";
 import { useSession } from "@/lib/auth-client";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
 import { fetchCatchUp } from "../api/use-messages";
-import { channelsKey, messagesKey } from "../api/keys";
-import { mergeMessage, type ChatMessage } from "./message-cache";
+import { messagesKey, readsKey } from "../api/keys";
+import { upsertRead, type ChannelReadDTO } from "../api/use-reads";
+import { clearConversationUnread } from "../api/read-sync";
+import { mergeMessage, OPTIMISTIC_SEQ, type ChatMessage } from "./message-cache";
 import { useRealtime } from "./realtime-context";
-import type { ChannelDTO } from "../api/use-channels";
 
 const CATCHUP_LIMIT = 100;
 
@@ -35,14 +36,23 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
   const lastClock = useRef(channelLastSeq);
   const catchingUp = useRef(false);
 
-  // Reseed the clock only when the channel itself changes — never from a later
-  // (possibly stale) DTO update, since events/catch-up own it after open.
+  const key = messagesKey(workspace.id, channelId);
+
+  // Reseed the clock when the channel changes — from the cache's actual
+  // high-water mark (the highest updatedSeq we've already applied), NOT the
+  // channel DTO's lastSeq. The DTO can be stale-high (a catch-up would then fetch
+  // nothing and miss messages that landed while this channel was closed) or
+  // stale-low; the cache is the honest record of what we've shown. Falls back to
+  // the DTO only when nothing is cached yet (first open).
   useEffect(() => {
-    lastClock.current = channelLastSeq;
+    const cached = qc.getQueryData<ChatMessage[]>(key);
+    const cacheMax = cached?.reduce(
+      (max, m) => (m.seq === OPTIMISTIC_SEQ ? max : Math.max(max, m.updatedSeq)),
+      0,
+    );
+    lastClock.current = cacheMax && cacheMax > 0 ? cacheMax : channelLastSeq;
     // intentionally keyed on channelId only
   }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const key = messagesKey(workspace.id, channelId);
 
   const runCatchUp = useCallback(async () => {
     if (catchingUp.current) return;
@@ -64,14 +74,20 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
   }, [qc, key, workspace.id, channelId]);
 
   const handleEvent = useCallback(
-    (event: ChannelEvent) => {
-      if (event.channelId !== channelId) return;
+    (event: RealtimeEvent) => {
+      // Workspace-wide events (roster changes) are handled elsewhere; this stream
+      // only reconciles its own channel's message timeline.
+      if (!isChannelEvent(event) || event.channelId !== channelId) return;
 
       if (event.kind === "channel.read") {
+        // Live receipts: record this member's cursor for the open channel.
+        qc.setQueryData<ChannelReadDTO[]>(readsKey(workspace.id, channelId), (old) =>
+          upsertRead(old, event.userId, event.lastReadSeq),
+        );
+        // My own read clears the unread badge AND the workspace roll-up (in sync,
+        // idempotent with useMarkRead's optimistic clear).
         if (event.userId === myUserId) {
-          qc.setQueryData<ChannelDTO[]>(channelsKey(workspace.id), (old) =>
-            (old ?? []).map((c) => (c.id === channelId ? { ...c, unread: 0 } : c)),
-          );
+          clearConversationUnread(qc, workspace.id, channelId);
         }
         return;
       }
@@ -84,11 +100,10 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
       }
       const allowInsert = event.kind === "message.created";
       qc.setQueryData<ChatMessage[]>(key, (old) => mergeMessage(old ?? [], event.message, allowInsert));
-      if (event.kind === "message.created" && event.message.authorId !== myUserId) {
-        qc.setQueryData<ChannelDTO[]>(channelsKey(workspace.id), (old) =>
-          (old ?? []).map((c) => (c.id === channelId ? { ...c, unread: c.unread + 1 } : c)),
-        );
-      }
+      // NOTE: unread counting is owned by the awareness (user) socket's
+      // `unread.bump` — see NotificationsProvider. We deliberately do NOT bump
+      // unread here, or the open channel would double-count (workspace socket +
+      // user socket). This stream only reconciles the message timeline.
       lastClock.current = seqv;
     },
     [channelId, key, qc, workspace.id, myUserId, runCatchUp],
@@ -96,6 +111,11 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
 
   useEffect(() => {
     client.subscribe(channelId);
+    // Revalidate on (re)mount: switching channels unmounts this stream, so any
+    // messages that landed while it was closed were never applied. Pull them now
+    // (since the cache's high-water mark) — a non-destructive merge that keeps
+    // optimistic rows + paged-in history, so it never clobbers live state.
+    void runCatchUp();
     const offEvent = client.onEvent(handleEvent);
     const offStatus = client.onStatus((status, reconnected) => {
       if (status === "open" && reconnected) void runCatchUp();

@@ -15,6 +15,13 @@ CREATE TABLE channels (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   type        text NOT NULL CHECK (type IN ('public', 'private', 'direct', 'group')),
   name        text,
+  -- Optional channel topic/description.
+  topic       text,
+  -- Archived channels are hidden from the channel list but keep their history.
+  archived    boolean NOT NULL DEFAULT false,
+  -- control.users.id of the creator (text — non-UUID). Used by the management
+  -- authz rule: a channel's creator (or a workspace admin) may rename/delete it.
+  created_by  text,
   dm_key      text,
   -- Monotonic per-channel change clock. Bumped under a row lock on every
   -- message create/edit/delete so sequences are gapless.
@@ -66,8 +73,20 @@ CREATE TABLE message_revisions (
   PRIMARY KEY (message_id, version)
 );
 
+-- Message attachments (Sprint 7). One row per uploaded file; `s3_key` is the
+-- source of truth (object key in the bucket), `url` is the resolved public URL
+-- snapshot, `category` is the policy bucket (image/video/audio/document/file)
+-- that drives client rendering. `content_type`/`size_bytes` are the
+-- S3-authoritative values read back via HeadObject at send time.
 CREATE TABLE attachments (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id  uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-  url         text NOT NULL
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id   uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  s3_key       text NOT NULL,
+  url          text NOT NULL,
+  filename     text NOT NULL,
+  content_type text NOT NULL,
+  size_bytes   bigint NOT NULL,
+  category     text NOT NULL,
+  created_at   timestamp with time zone NOT NULL DEFAULT now()
 );
+CREATE INDEX attachments_message_idx ON attachments (message_id);

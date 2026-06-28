@@ -1,8 +1,10 @@
 import { useRef } from "react";
-import { Navigate, Outlet, useLocation } from "react-router";
+import { Navigate, useLocation } from "react-router";
 import { useSession } from "@/lib/auth-client";
 import { LoadingScreen } from "@/components/loading-screen";
 import { paths } from "@/lib/paths";
+import { NotificationsProvider } from "@/features/notifications/realtime/notifications-provider";
+import { AppFrame } from "@/components/layout/app-frame";
 
 /**
  * Auth gate for protected routes — used as a layout route in `router.tsx`, so it
@@ -27,5 +29,12 @@ export function RequireAuth() {
   if (isPending && !everResolved.current) return <LoadingScreen />;
   if (!session?.user) return <Navigate to={paths.login} state={{ from: location }} replace />;
 
-  return <Outlet />;
+  // The awareness socket + notification caches live here (above the rail and the
+  // workspace shell) so badges/inbox work app-wide and survive navigation. The
+  // global workspace rail + routed content render inside the frame.
+  return (
+    <NotificationsProvider>
+      <AppFrame />
+    </NotificationsProvider>
+  );
 }

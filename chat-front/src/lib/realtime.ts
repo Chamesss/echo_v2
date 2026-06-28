@@ -1,9 +1,9 @@
-import type { ChannelEvent, ClientFrame, ServerFrame } from "@server/infrastructure/realtime/protocol";
+import type { ClientFrame, RealtimeEvent, ServerFrame } from "@server/infrastructure/realtime/protocol";
 import { env } from "@/config/env";
 
 export type RealtimeStatus = "connecting" | "open" | "closed";
 
-type EventListener = (event: ChannelEvent) => void;
+type EventListener = (event: RealtimeEvent) => void;
 type StatusListener = (status: RealtimeStatus, reconnected: boolean) => void;
 
 /**
@@ -37,6 +37,11 @@ export class WorkspaceRealtime {
   }
 
   private open(): void {
+    // Detach + close any prior socket first so a superseded connection (React
+    // StrictMode remount, flapping reconnect) can't deliver events twice. Each
+    // handler also guards on socket identity.
+    this.teardownSocket();
+
     const base = env.VITE_API_URL.replace(/^http/, "ws"); // http→ws, https→wss
     const url = `${base}/ws?workspaceId=${encodeURIComponent(this.workspaceId)}`;
     this.emitStatus("connecting", false);
@@ -45,6 +50,7 @@ export class WorkspaceRealtime {
     this.ws = ws;
 
     ws.onopen = () => {
+      if (this.ws !== ws) return; // superseded
       const reconnected = this.hasConnectedBefore;
       this.hasConnectedBefore = true;
       this.reconnectAttempts = 0;
@@ -54,6 +60,7 @@ export class WorkspaceRealtime {
     };
 
     ws.onmessage = (e) => {
+      if (this.ws !== ws) return; // ignore frames from a stale socket
       let frame: ServerFrame;
       try {
         frame = JSON.parse(e.data as string);
@@ -66,12 +73,29 @@ export class WorkspaceRealtime {
     };
 
     ws.onclose = () => {
+      if (this.ws !== ws) return; // a socket we already replaced
       this.ws = null;
       this.emitStatus("closed", false);
       if (!this.stopped) this.scheduleReconnect();
     };
 
-    ws.onerror = () => ws.close();
+    ws.onerror = () => {
+      if (this.ws !== ws) return;
+      ws.close();
+    };
+  }
+
+  /** Detach handlers and close the current socket so it can't fire listeners. */
+  private teardownSocket(): void {
+    const ws = this.ws;
+    if (!ws) return;
+    this.ws = null;
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    try {
+      ws.close();
+    } catch {
+      // already closing/closed
+    }
   }
 
   private scheduleReconnect(): void {
@@ -111,8 +135,7 @@ export class WorkspaceRealtime {
     this.stopped = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
-    this.ws?.close();
-    this.ws = null;
+    this.teardownSocket();
   }
 
   private sendFrame(frame: ClientFrame): void {

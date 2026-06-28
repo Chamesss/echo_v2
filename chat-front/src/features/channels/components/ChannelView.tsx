@@ -1,12 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Hash, Lock } from "lucide-react";
+import { Hash, Lock, Settings, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isTabVisible } from "@/lib/visibility";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
 import { useChannels, useJoinChannel, type ChannelDTO } from "../api/use-channels";
+import { useDirectMessages, type DirectMessageDTO } from "../api/use-dms";
 import { useMarkRead, useMessages } from "../api/use-messages";
+import { useMarkRead as useMarkNotificationsRead } from "@/features/notifications/api/use-notifications";
 import { OPTIMISTIC_SEQ } from "../realtime/message-cache";
 import { useChannelStream } from "../realtime/use-channel-stream";
+import { ChannelSettingsDialog } from "./ChannelSettingsDialog";
 import { MessageComposer } from "./MessageComposer";
 import { MessageList } from "./MessageList";
 
@@ -20,24 +24,54 @@ import { MessageList } from "./MessageList";
  */
 export function ChannelView({ channelId }: { channelId: string }) {
   const workspace = useCurrentWorkspace();
-  const { data: channels, isPending } = useChannels(workspace.id);
+  const { data: channels, isPending: channelsPending } = useChannels(workspace.id);
+  const { data: dms, isPending: dmsPending } = useDirectMessages(workspace.id);
   const join = useJoinChannel(workspace.id);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const channel = channels?.find((c) => c.id === channelId);
+  const channel =
+    channels?.find((c) => c.id === channelId) ?? dms?.find((d) => d.id === channelId);
 
-  if (isPending && !channel) {
-    return <Centered>Loading channel…</Centered>;
-  }
   if (!channel) {
+    if (channelsPending || dmsPending) return <Centered>Loading channel…</Centered>;
     return <Centered>Channel not found.</Centered>;
   }
+
+  const isDm = channel.type === "direct" || channel.type === "group";
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
-        {channel.type === "private" ? <Lock className="size-4" /> : <Hash className="size-4" />}
+        {isDm ? (
+          <Users className="size-4" />
+        ) : channel.type === "private" ? (
+          <Lock className="size-4" />
+        ) : (
+          <Hash className="size-4" />
+        )}
         <span className="font-semibold text-foreground">{channel.name}</span>
+        {channel.topic && (
+          <span className="ml-1 hidden truncate border-l border-border pl-3 text-sm text-muted-foreground sm:block">
+            {channel.topic}
+          </span>
+        )}
+        {/* DMs aren't renameable/archivable, so no settings gear for them. */}
+        {channel.isMember && !isDm && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto shrink-0"
+            aria-label="Channel settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings />
+          </Button>
+        )}
       </header>
+
+      {settingsOpen && !isDm && (
+        <ChannelSettingsDialog channel={channel} onClose={() => setSettingsOpen(false)} />
+      )}
 
       {channel.isMember ? (
         <ChannelMessages channel={channel} />
@@ -59,32 +93,54 @@ export function ChannelView({ channelId }: { channelId: string }) {
   );
 }
 
-function ChannelMessages({ channel }: { channel: ChannelDTO }) {
+function ChannelMessages({ channel }: { channel: ChannelDTO | DirectMessageDTO }) {
   const workspace = useCurrentWorkspace();
   const { data: messages = [], isPending } = useMessages(workspace.id, channel.id);
   const markRead = useMarkRead(workspace.id, channel.id);
+  const markNotificationsRead = useMarkNotificationsRead();
   const lastMarked = useRef(0);
 
   // Live updates + gap/reconnect reconciliation for this channel.
   useChannelStream(channel.id, channel.lastSeq);
 
-  // While the channel is open, keep the read cursor at the newest real message.
+  // Opening any conversation clears its inbox notifications (bell + badges).
+  // Messages that arrive while it's open + focused are skipped by the awareness
+  // provider, so they don't re-accumulate.
   useEffect(() => {
-    const maxSeq = messages.reduce(
-      (max, m) => (m.seq === OPTIMISTIC_SEQ ? max : Math.max(max, m.seq)),
-      0,
-    );
-    if (maxSeq > lastMarked.current) {
-      lastMarked.current = maxSeq;
-      markRead.mutate(maxSeq);
-    }
-  }, [messages, markRead]);
+    markNotificationsRead.mutate({ channelId: channel.id });
+    // Fire once per opened channel; the mutation handle is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel.id]);
+
+  // Read cursor = the "seen" signal. Advance to the newest real message while the
+  // tab is VISIBLE (the foreground tab). We use visibilityState, NOT
+  // document.hasFocus(): hasFocus() is false whenever DevTools or another window
+  // holds OS focus, which would wrongly freeze the cursor (unread never clears,
+  // receipts never advance). A message that lands on a hidden/background tab stays
+  // unread until the tab is shown again (re-checked on visibilitychange).
+  const markReadMutate = markRead.mutate;
+  useEffect(() => {
+    const advance = () => {
+      if (!isTabVisible()) return;
+      const maxSeq = messages.reduce(
+        (max, m) => (m.seq === OPTIMISTIC_SEQ ? max : Math.max(max, m.seq)),
+        0,
+      );
+      if (maxSeq > lastMarked.current) {
+        lastMarked.current = maxSeq;
+        markReadMutate(maxSeq);
+      }
+    };
+    advance();
+    document.addEventListener("visibilitychange", advance);
+    return () => document.removeEventListener("visibilitychange", advance);
+  }, [messages, markReadMutate]);
 
   if (isPending) return <Centered>Loading messages…</Centered>;
 
   return (
     <>
-      <MessageList messages={messages} />
+      <MessageList channel={channel} messages={messages} />
       <MessageComposer channelId={channel.id} />
     </>
   );

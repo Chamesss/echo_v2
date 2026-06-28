@@ -1,4 +1,4 @@
-import type { MessageWire } from "@server/infrastructure/realtime/protocol";
+import type { AttachmentWire, MessageWire } from "@server/infrastructure/realtime/protocol";
 
 /**
  * A message in the client cache. Extends the wire shape with optimistic-send
@@ -47,12 +47,22 @@ export function mergeMessage(
   return list;
 }
 
+/**
+ * Merge a batch of messages into the list (used for history pagination: an
+ * older page is prepended, deduped, and re-sorted). Each row is allowed to
+ * insert — the history endpoint already excludes deletes.
+ */
+export function mergeBatch(list: ChatMessage[], batch: MessageWire[]): ChatMessage[] {
+  return batch.reduce((acc, msg) => mergeMessage(acc, msg, true), list);
+}
+
 /** Build the optimistic row shown the instant a user hits send. */
 export function optimisticMessage(input: {
   clientId: string;
   channelId: string;
   authorId: string;
   body: string;
+  attachments?: AttachmentWire[];
 }): ChatMessage {
   const now = new Date().toISOString();
   return {
@@ -65,6 +75,8 @@ export function optimisticMessage(input: {
     updatedSeq: OPTIMISTIC_SEQ,
     version: 1,
     deleted: false,
+    // Already-uploaded files (their public URLs), so the row renders instantly.
+    attachments: input.attachments ?? [],
     createdAt: now,
     updatedAt: null,
     pending: true,

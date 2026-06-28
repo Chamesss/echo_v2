@@ -9,7 +9,9 @@
     "dev:front": "pnpm --filter chat-front dev",
     "db:migrate": "pnpm --filter chat-server db:migrate",
     "db:studio": "pnpm --filter chat-server db:studio",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
   },
   "packageManager": "pnpm@9.0.0",
   "pnpm": {

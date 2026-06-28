@@ -16,8 +16,11 @@ import { workspaces, memberships, tenantCatalog } from '../database/control/sche
  *
  * v2: messaging/versioning — user-reference columns to `text`, `messages`
  *     gains `updated_seq` + timestamps, plus the catch-up index.
+ * v3: channel management — `channels` gains `topic`, `archived`, `created_by`.
+ * v4: attachments — `attachments` gains s3_key/filename/content_type/size_bytes/
+ *     category/created_at + a message index (Sprint 7 file manager).
  */
-export const TENANT_SCHEMA_VERSION = 2;
+export const TENANT_SCHEMA_VERSION = 4;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TENANT_INIT_SQL_PATH = path.resolve(__dirname, '../database/tenant/init.sql');
@@ -91,9 +94,10 @@ export async function provisionWorkspace(
   const initSql = await loadInitSql();
 
   return controlDb.transaction(async (tx) => {
+    // Display name defaults to the slug; editable later via workspace settings.
     const inserted = await tx
       .insert(workspaces)
-      .values({ slug: input.slug, ownerId: input.ownerId })
+      .values({ slug: input.slug, name: input.slug, ownerId: input.ownerId })
       .returning({ id: workspaces.id });
 
     const workspace = inserted[0];

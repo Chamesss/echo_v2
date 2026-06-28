@@ -86,16 +86,21 @@ export function ChannelList() {
               )
             }
           >
-            {channel.type === "private" ? (
-              <Lock className="size-4 shrink-0" />
-            ) : (
-              <Hash className="size-4 shrink-0" />
-            )}
-            <span className="truncate">{channel.name}</span>
-            {channel.unread > 0 && (
-              <span className="ml-auto rounded-full bg-foreground px-1.5 text-[10px] font-semibold text-background">
-                {channel.unread}
-              </span>
+            {({ isActive }) => (
+              <>
+                {channel.type === "private" ? (
+                  <Lock className="size-4 shrink-0" />
+                ) : (
+                  <Hash className="size-4 shrink-0" />
+                )}
+                <span className="truncate">{channel.name}</span>
+                {/* No badge for the channel you're viewing — it has no unread to you. */}
+                {channel.unread > 0 && !isActive && (
+                  <span className="ml-auto h-4 w-4 text-center rounded-full bg-foreground px-1 text-[10px] font-semibold text-background">
+                    {channel.unread}
+                  </span>
+                )}
+              </>
             )}
           </NavLink>
         ))

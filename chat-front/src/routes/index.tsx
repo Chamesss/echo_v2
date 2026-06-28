@@ -1,25 +1,24 @@
 import { Navigate } from "react-router";
 import { LoadingScreen } from "@/components/loading-screen";
-import { useMyWorkspaces } from "@/features/workspaces/api/use-my-workspaces";
-import { resolveLandingPath } from "@/features/workspaces/utils/resolve-landing-path";
+import { getLastWorkspaceId } from "@/lib/local-storage";
 import { paths } from "@/lib/paths";
+import { useMyWorkspaces } from "@/features/workspaces/api/use-my-workspaces";
 
 /**
- * Root route ("/") — pure redirector. Auth is handled by the `RequireAuth`
- * layout above, so this only runs for signed-in users.
- *
- * Fetch the user's workspaces and send them to the right place: create page if
- * they have none, otherwise the last-used (or first) workspace. See
- * `resolveLandingPath` for the picking logic.
- *
- * Failures fall through to /workspaces/create rather than blocking — better to
- * give the user a path forward than a blank error.
+ * Root route ("/"). Slack-like: you're always inside a workspace, with the
+ * global rail (left) handling switching/creating. So this resolves straight to a
+ * workspace — the one you were last in, else your first — or the create page if
+ * you have none. (The 6.5 card-grid dashboard was replaced by the rail.)
  */
 export default function Index() {
-  const { data: workspaces, isPending, error } = useMyWorkspaces();
+  const { data: workspaces, isPending } = useMyWorkspaces();
 
   if (isPending) return <LoadingScreen />;
-  if (error) return <Navigate to={paths.workspaceCreate} replace />;
+  if (!workspaces || workspaces.length === 0) {
+    return <Navigate to={paths.workspaceCreate} replace />;
+  }
 
-  return <Navigate to={resolveLandingPath(workspaces ?? [])} replace />;
+  const last = getLastWorkspaceId();
+  const target = workspaces.find((w) => w.id === last) ?? workspaces[0]!;
+  return <Navigate to={paths.workspace(target.id)} replace />;
 }

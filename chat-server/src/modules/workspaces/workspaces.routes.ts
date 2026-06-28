@@ -2,12 +2,19 @@ import { Router } from 'express';
 import { validate } from '../../shared/middleware/validate.js';
 import { asyncHandler } from '../../shared/middleware/async-handler.js';
 import { loadWorkspace } from '../../shared/middleware/load-workspace.js';
+import { requireWorkspaceRole } from '../../shared/middleware/require-workspace-role.js';
 import { channelsRouter } from '../channels/channels.routes.js';
-import { createWorkspaceBody } from './workspaces.dto.js';
+import { dmsRouter } from '../channels/dm.routes.js';
+import { membersRouter } from '../members/members.routes.js';
+import { invitesRouter } from '../members/invites.routes.js';
+import { leaveWorkspaceController, getDirectoryController } from '../members/members.controller.js';
+import { createWorkspaceBody, updateWorkspaceBody } from './workspaces.dto.js';
 import {
   createWorkspaceController,
+  deleteWorkspaceController,
   getWorkspaceController,
   listMyWorkspacesController,
+  updateWorkspaceController,
 } from './workspaces.controller.js';
 
 /**
@@ -44,5 +51,24 @@ workspacesRouter.use('/:workspaceId', loadWorkspace);
 
 workspacesRouter.get('/:workspaceId', getWorkspaceController);
 
-// Channels + messages inherit the `loadWorkspace` membership check above.
+// Rename is admin-only; delete is owner-only (checked inside the controller).
+workspacesRouter.patch(
+  '/:workspaceId',
+  requireWorkspaceRole('admin'),
+  validate({ body: updateWorkspaceBody }),
+  asyncHandler(updateWorkspaceController),
+);
+workspacesRouter.delete('/:workspaceId', asyncHandler(deleteWorkspaceController));
+
+// Cached member directory (name/avatar) — any member may read.
+workspacesRouter.get('/:workspaceId/directory', asyncHandler(getDirectoryController));
+
+// Any member can leave (the owner can't — enforced in the service).
+workspacesRouter.post('/:workspaceId/leave', asyncHandler(leaveWorkspaceController));
+
+// Channels, members, and invites all inherit the `loadWorkspace` membership
+// check above; member/invite mutations add their own `requireWorkspaceRole`.
 workspacesRouter.use('/:workspaceId/channels', channelsRouter);
+workspacesRouter.use('/:workspaceId/dms', dmsRouter);
+workspacesRouter.use('/:workspaceId/members', membersRouter);
+workspacesRouter.use('/:workspaceId/invites', invitesRouter);

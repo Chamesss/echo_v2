@@ -1,22 +1,34 @@
 import type { PoolClient } from "pg";
 import { withTenantSchema } from "../../infrastructure/database/tenant/client.js";
+import {
+  emitUserEvents,
+  emitWorkspaceEvent,
+  RealtimeEvents,
+  UserEvents,
+} from "../../infrastructure/realtime/events.js";
 import { ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import type { CreateChannelBody } from "./channels.dto.js";
 
 /**
  * Channel business logic. All persistence runs through `withTenantSchema`, so
- * the unqualified table names resolve to the caller's workspace schema.
+ * unqualified table names resolve to the caller's workspace schema. The control
+ * tables (`users`, `memberships`) live in `public`, which is also on the
+ * search_path, so a tenant query can join to them directly.
  *
- * Access model (v1): participating in a channel — reading, subscribing over the
- * socket, posting — requires a `channel_members` row. Public channels are
- * open-join (any workspace member); private channels are invite-only (members
- * are seeded at creation; an invite flow lands with the DMs follow-up).
+ * Access model: participating in a channel — reading, subscribing, posting —
+ * requires a `channel_members` row. Public channels are open-join; private
+ * channels are managed (members are added by a channel member). MANAGEMENT of a
+ * channel (rename / set topic / archive / delete / remove members) requires
+ * being a workspace admin OR the channel's creator.
  */
 export interface ChannelDTO {
   id: string;
   type: "public" | "private" | "direct" | "group";
   name: string | null;
+  topic: string | null;
+  archived: boolean;
+  createdBy: string | null;
   lastSeq: number;
   isMember: boolean;
   unread: number;
@@ -27,10 +39,25 @@ interface ChannelRow {
   id: string;
   type: ChannelDTO["type"];
   name: string | null;
+  topic: string | null;
+  archived: boolean;
+  created_by: string | null;
   last_seq: number;
   created_at: Date;
   last_read_seq: number | null;
   is_member: boolean;
+}
+
+/** Columns + membership computed against `$1 = userId`, shared by the read queries. */
+const CHANNEL_SELECT = `
+  c.id, c.type, c.name, c.topic, c.archived, c.created_by, c.last_seq, c.created_at,
+  cm.last_read_seq,
+  (cm.user_id IS NOT NULL) AS is_member`;
+
+/** Actor context for management operations. */
+export interface ChannelActor {
+  userId: string;
+  isWorkspaceAdmin: boolean;
 }
 
 function toDTO(row: ChannelRow): ChannelDTO {
@@ -38,6 +65,9 @@ function toDTO(row: ChannelRow): ChannelDTO {
     id: row.id,
     type: row.type,
     name: row.name,
+    topic: row.topic,
+    archived: row.archived,
+    createdBy: row.created_by,
     lastSeq: row.last_seq,
     isMember: row.is_member,
     unread: row.is_member ? Math.max(0, row.last_seq - (row.last_read_seq ?? 0)) : 0,
@@ -45,17 +75,20 @@ function toDTO(row: ChannelRow): ChannelDTO {
   };
 }
 
-/** Channels the user can see: every public channel + private ones they're in. */
+/**
+ * Named channels the user can see: every public channel + private ones they're
+ * in. Hides archived. DMs (`direct`/`group`) are intentionally excluded — they
+ * have their own listing (see `dm.service.ts#listDirectMessages`).
+ */
 export async function listChannels(workspaceId: string, userId: string): Promise<ChannelDTO[]> {
   return withTenantSchema(workspaceId, async (db) => {
     const { rows } = await db.query<ChannelRow>(
-      `SELECT c.id, c.type, c.name, c.last_seq, c.created_at,
-              cm.last_read_seq,
-              (cm.user_id IS NOT NULL) AS is_member
+      `SELECT ${CHANNEL_SELECT}
          FROM channels c
-         LEFT JOIN channel_members cm
-           ON cm.channel_id = c.id AND cm.user_id = $1
-        WHERE c.type = 'public' OR cm.user_id IS NOT NULL
+         LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $1
+        WHERE c.archived = false
+          AND c.type IN ('public', 'private')
+          AND (c.type = 'public' OR cm.user_id IS NOT NULL)
         ORDER BY c.created_at ASC, c.id ASC`,
       [userId],
     );
@@ -68,46 +101,64 @@ export async function createChannel(
   userId: string,
   input: CreateChannelBody,
 ): Promise<ChannelDTO> {
-  return withTenantSchema(workspaceId, async (db) => {
+  const channel = await withTenantSchema(workspaceId, async (db) => {
     const { rows } = await db.query<ChannelRow>(
-      `INSERT INTO channels (type, name)
-       VALUES ($1, $2)
-       RETURNING id, type, name, last_seq, created_at, 0 AS last_read_seq, true AS is_member`,
-      [input.type, input.name],
+      `INSERT INTO channels (type, name, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING id, type, name, topic, archived, created_by, last_seq, created_at,
+                 0 AS last_read_seq, true AS is_member`,
+      [input.type, input.name, userId],
     );
-    const channel = rows[0]!;
+    const row = rows[0]!;
     await db.query(`INSERT INTO channel_members (channel_id, user_id) VALUES ($1, $2)`, [
-      channel.id,
+      row.id,
       userId,
     ]);
-    return toDTO(channel);
+    return toDTO(row);
   });
+
+  // Tell the workspace a channel now exists so live clients show it without a
+  // reload (a private channel's id is harmless to broadcast — non-members' list
+  // refetch won't include it).
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelCreated(channel.id));
+  return channel;
 }
 
-/** Open-join a public channel. Private channels are invite-only (403). */
+/** Open-join a public channel. Private channels are managed (403); archived channels can't be joined. */
 export async function joinChannel(
   workspaceId: string,
   userId: string,
   channelId: string,
 ): Promise<ChannelDTO> {
-  return withTenantSchema(workspaceId, async (db) => {
+  const channel = await withTenantSchema(workspaceId, async (db) => {
     const { rows } = await db.query<ChannelRow>(
-      `SELECT id, type, name, last_seq, created_at, NULL::int AS last_read_seq, false AS is_member
-         FROM channels WHERE id = $1`,
+      `SELECT c.id, c.type, c.name, c.topic, c.archived, c.created_by, c.last_seq, c.created_at,
+              NULL::int AS last_read_seq, false AS is_member
+         FROM channels c WHERE c.id = $1`,
       [channelId],
     );
-    const channel = rows[0];
-    if (!channel) throw new NotFoundError("Channel not found", ErrorCode.ChannelNotFound);
-    if (channel.type !== "public") {
+    const row = rows[0];
+    if (!row) throw new NotFoundError("Channel not found", ErrorCode.ChannelNotFound);
+    if (row.archived) {
+      throw new ForbiddenError("This channel is archived", ErrorCode.ChannelArchived);
+    }
+    if (row.type !== "public") {
       throw new ForbiddenError("This channel is invite-only", ErrorCode.NotAChannelMember);
     }
+    // Start the joiner caught up to the join point — they didn't "miss" the
+    // pre-existing history, so it shouldn't show as unread. Only messages sent
+    // after they join count toward their unread.
     await db.query(
-      `INSERT INTO channel_members (channel_id, user_id) VALUES ($1, $2)
+      `INSERT INTO channel_members (channel_id, user_id, last_read_seq) VALUES ($1, $2, $3)
        ON CONFLICT (channel_id, user_id) DO NOTHING`,
-      [channelId, userId],
+      [channelId, userId, row.last_seq],
     );
-    return toDTO({ ...channel, is_member: true, last_read_seq: 0 });
+    return toDTO({ ...row, is_member: true, last_read_seq: row.last_seq });
   });
+
+  // Member set changed → others re-read the channel's member list.
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channelId));
+  return channel;
 }
 
 export async function getChannel(
@@ -117,8 +168,7 @@ export async function getChannel(
 ): Promise<ChannelDTO> {
   return withTenantSchema(workspaceId, async (db) => {
     const { rows } = await db.query<ChannelRow>(
-      `SELECT c.id, c.type, c.name, c.last_seq, c.created_at,
-              cm.last_read_seq, (cm.user_id IS NOT NULL) AS is_member
+      `SELECT ${CHANNEL_SELECT}
          FROM channels c
          LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2
         WHERE c.id = $1`,
@@ -126,10 +176,231 @@ export async function getChannel(
     );
     const channel = rows[0];
     if (!channel) throw new NotFoundError("Channel not found", ErrorCode.ChannelNotFound);
-    if (channel.type === "private" && !channel.is_member) {
+    // Only public channels are visible to non-members; private channels and DMs
+    // (direct/group) require a membership row.
+    if (channel.type !== "public" && !channel.is_member) {
       throw new ForbiddenError("You don't have access to this channel", ErrorCode.NotAChannelMember);
     }
     return toDTO(channel);
+  });
+}
+
+// ─── Management (admin or creator) ──────────────────────────────────────────
+
+/** Fetch a channel and assert the actor may manage it (workspace admin OR creator). */
+async function assertCanManageChannel(
+  db: PoolClient,
+  channelId: string,
+  actor: ChannelActor,
+): Promise<void> {
+  const { rows } = await db.query<{ created_by: string | null }>(
+    `SELECT created_by FROM channels WHERE id = $1`,
+    [channelId],
+  );
+  const channel = rows[0];
+  if (!channel) throw new NotFoundError("Channel not found", ErrorCode.ChannelNotFound);
+  if (actor.isWorkspaceAdmin || channel.created_by === actor.userId) return;
+  throw new ForbiddenError(
+    "Only the channel creator or a workspace admin can manage this channel",
+    ErrorCode.CannotManageChannel,
+  );
+}
+
+export interface UpdateChannelInput {
+  name?: string;
+  topic?: string | null;
+  archived?: boolean;
+}
+
+/** Rename / set topic / archive a channel. */
+export async function updateChannel(
+  workspaceId: string,
+  channelId: string,
+  actor: ChannelActor,
+  input: UpdateChannelInput,
+): Promise<ChannelDTO> {
+  const channel = await withTenantSchema(workspaceId, async (db) => {
+    await assertCanManageChannel(db, channelId, actor);
+
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (input.name !== undefined) sets.push(`name = $${params.push(input.name)}`);
+    if (input.topic !== undefined) sets.push(`topic = $${params.push(input.topic)}`);
+    if (input.archived !== undefined) sets.push(`archived = $${params.push(input.archived)}`);
+    // The DTO guarantees at least one field, so `sets` is never empty.
+
+    // Membership / read-state for the returned DTO is computed against the actor.
+    const actorParam = params.push(actor.userId);
+    const idParam = params.push(channelId);
+
+    const { rows } = await db.query<ChannelRow>(
+      `WITH updated AS (
+         UPDATE channels AS c SET ${sets.join(", ")} WHERE c.id = $${idParam}
+         RETURNING c.id, c.type, c.name, c.topic, c.archived, c.created_by, c.last_seq, c.created_at
+       )
+       SELECT u.id, u.type, u.name, u.topic, u.archived, u.created_by, u.last_seq, u.created_at,
+              cm.last_read_seq, (cm.user_id IS NOT NULL) AS is_member
+         FROM updated u
+         LEFT JOIN channel_members cm ON cm.channel_id = u.id AND cm.user_id = $${actorParam}`,
+      params,
+    );
+    return toDTO(rows[0]!);
+  });
+
+  // Name/topic/archived changed → live clients re-read the channel.
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channel.id));
+  return channel;
+}
+
+/** Hard-delete a channel (cascades messages, members, revisions, attachments). */
+export async function deleteChannel(
+  workspaceId: string,
+  channelId: string,
+  actor: ChannelActor,
+): Promise<void> {
+  await withTenantSchema(workspaceId, async (db) => {
+    await assertCanManageChannel(db, channelId, actor);
+    await db.query(`DELETE FROM channels WHERE id = $1`, [channelId]);
+  });
+
+  // Drop it from every live client's list (and bounce anyone viewing it).
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelDeleted(channelId));
+}
+
+/** Leave a channel (any current member; removes only their own membership). */
+export async function leaveChannel(
+  workspaceId: string,
+  userId: string,
+  channelId: string,
+): Promise<void> {
+  await withTenantSchema(workspaceId, async (db) => {
+    await assertChannelMember(db, channelId, userId);
+    await db.query(`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`, [
+      channelId,
+      userId,
+    ]);
+  });
+
+  // Member set changed → re-read the channel (the leaver's own list drops it too).
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channelId));
+}
+
+export interface ChannelMemberDTO {
+  userId: string;
+  name: string;
+  email: string;
+  image: string | null;
+}
+
+/** List a channel's members (must be a member to view). */
+export async function listChannelMembers(
+  workspaceId: string,
+  userId: string,
+  channelId: string,
+): Promise<ChannelMemberDTO[]> {
+  return withTenantSchema(workspaceId, async (db) => {
+    await assertChannelMember(db, channelId, userId);
+    const { rows } = await db.query<{
+      user_id: string;
+      name: string;
+      email: string;
+      image: string | null;
+    }>(
+      `SELECT cm.user_id, u.name, u.email, u.image
+         FROM channel_members cm
+         JOIN users u ON u.id = cm.user_id
+        WHERE cm.channel_id = $1
+        ORDER BY u.name`,
+      [channelId],
+    );
+    return rows.map((r) => ({
+      userId: r.user_id,
+      name: r.name,
+      email: r.email,
+      image: r.image ?? null,
+    }));
+  });
+}
+
+/** Add a workspace member to a channel. Any channel member may add others. */
+export async function addChannelMember(
+  workspaceId: string,
+  channelId: string,
+  actorUserId: string,
+  targetUserId: string,
+): Promise<void> {
+  await withTenantSchema(workspaceId, async (db) => {
+    await assertChannelMember(db, channelId, actorUserId);
+    const { rows } = await db.query<{ ok: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM memberships WHERE workspace_id = $1 AND user_id = $2) AS ok`,
+      [workspaceId, targetUserId],
+    );
+    if (!rows[0]!.ok) {
+      throw new NotFoundError("That user isn't a member of this workspace", ErrorCode.NotAMember);
+    }
+    // Caught up to when they were added — pre-existing history isn't "unread".
+    await db.query(
+      `INSERT INTO channel_members (channel_id, user_id, last_read_seq)
+       SELECT $1, $2, last_seq FROM channels WHERE id = $1
+       ON CONFLICT (channel_id, user_id) DO NOTHING`,
+      [channelId, targetUserId],
+    );
+  });
+
+  // Dual-route to the added user so the channel appears in their list even from
+  // the dashboard / another workspace; broadcast so member-list viewers re-read.
+  await emitUserEvents([
+    { userId: targetUserId, event: UserEvents.channelAdded(workspaceId, channelId) },
+  ]);
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channelId));
+}
+
+/** Remove a member from a channel (admin or creator). */
+export async function removeChannelMember(
+  workspaceId: string,
+  channelId: string,
+  actor: ChannelActor,
+  targetUserId: string,
+): Promise<void> {
+  await withTenantSchema(workspaceId, async (db) => {
+    await assertCanManageChannel(db, channelId, actor);
+    await db.query(`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`, [
+      channelId,
+      targetUserId,
+    ]);
+  });
+
+  // Dual-route to the removed user so they lose it live (and get bounced out if
+  // viewing it); broadcast so member-list viewers re-read.
+  await emitUserEvents([
+    { userId: targetUserId, event: UserEvents.channelRemoved(workspaceId, channelId) },
+  ]);
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channelId));
+}
+
+export interface ChannelReadDTO {
+  userId: string;
+  lastReadSeq: number;
+}
+
+/**
+ * Every member's read cursor for a channel — the basis for "seen by" receipts.
+ * A message with creation ordinal `seq` is seen by a user iff their
+ * `lastReadSeq >= seq`. Requires channel membership; names/avatars are resolved
+ * client-side from the member directory.
+ */
+export async function getChannelReads(
+  workspaceId: string,
+  userId: string,
+  channelId: string,
+): Promise<ChannelReadDTO[]> {
+  return withTenantSchema(workspaceId, async (db) => {
+    await assertChannelMember(db, channelId, userId);
+    const { rows } = await db.query<{ user_id: string; last_read_seq: number }>(
+      `SELECT user_id, last_read_seq FROM channel_members WHERE channel_id = $1`,
+      [channelId],
+    );
+    return rows.map((r) => ({ userId: r.user_id, lastReadSeq: r.last_read_seq }));
   });
 }
 

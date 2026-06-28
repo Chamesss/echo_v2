@@ -24,6 +24,30 @@ export const AuthEventName = {
 
 export type AuthEventName = (typeof AuthEventName)[keyof typeof AuthEventName];
 
+/**
+ * Workspace/channel admin events. Recorded in the same `auth_events` table —
+ * the audit surface the table was always meant to grow into (see its schema
+ * comment) — but with the affected `workspaceId` folded into `metadata` by
+ * `logWorkspaceEvent`. These are the security-relevant structural changes an
+ * enterprise admin needs a forensic trail of: who created/deleted a channel,
+ * who invited/removed a member, who changed a role.
+ */
+export const WorkspaceEventName = {
+  ChannelCreated: "channel.created",
+  ChannelRenamed: "channel.renamed",
+  ChannelArchived: "channel.archived",
+  ChannelDeleted: "channel.deleted",
+  MemberInvited: "member.invited",
+  MemberAdded: "member.added",
+  MemberRemoved: "member.removed",
+  MemberRoleChanged: "member.role_changed",
+  MemberLeft: "member.left",
+  WorkspaceRenamed: "workspace.renamed",
+  WorkspaceDeleted: "workspace.deleted",
+} as const;
+
+export type WorkspaceEventName = (typeof WorkspaceEventName)[keyof typeof WorkspaceEventName];
+
 export interface AuditEventInput {
   userId?: string | null;
   event: AuthEventName | string;
@@ -58,4 +82,28 @@ export async function logAuthEvent(input: AuditEventInput): Promise<void> {
       "Failed to write audit event — continuing without it",
     );
   }
+}
+
+export interface WorkspaceAuditInput {
+  userId: string;
+  workspaceId: string;
+  event: WorkspaceEventName | string;
+  metadata?: Record<string, unknown> | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+/**
+ * Records a workspace/channel admin action, folding `workspaceId` into the
+ * event metadata so the audit trail is queryable per workspace. Thin wrapper
+ * over `logAuthEvent` — same table, same swallow-on-failure guarantee.
+ */
+export async function logWorkspaceEvent(input: WorkspaceAuditInput): Promise<void> {
+  await logAuthEvent({
+    userId: input.userId,
+    event: input.event,
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+    metadata: { workspaceId: input.workspaceId, ...(input.metadata ?? {}) },
+  });
 }

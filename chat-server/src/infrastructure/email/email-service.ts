@@ -6,6 +6,7 @@ import {
   resetPasswordTemplate,
   verifyEmailTemplate,
   welcomeTemplate,
+  workspaceInviteTemplate,
 } from "./templates/index.js";
 
 interface SendArgs {
@@ -38,6 +39,13 @@ interface WelcomeArgs {
   name: string;
 }
 
+interface WorkspaceInviteArgs {
+  to: string;
+  workspaceName: string;
+  inviterName: string;
+  url: string;
+}
+
 /**
  * Application-facing email API.
  *
@@ -57,6 +65,7 @@ export interface EmailService {
   sendVerificationEmail(args: VerifyEmailArgs): Promise<void>;
   sendChangeEmailConfirmation(args: ChangeEmailArgs): Promise<void>;
   sendWelcome(args: WelcomeArgs): Promise<void>;
+  sendWorkspaceInvite(args: WorkspaceInviteArgs): Promise<void>;
 }
 
 class SmtpEmailService implements EmailService {
@@ -88,6 +97,11 @@ class SmtpEmailService implements EmailService {
     const { subject, html } = welcomeTemplate({ name });
     await this.send({ to, subject, html });
   }
+
+  async sendWorkspaceInvite({ to, workspaceName, inviterName, url }: WorkspaceInviteArgs): Promise<void> {
+    const { subject, html } = workspaceInviteTemplate({ workspaceName, inviterName, url });
+    await this.send({ to, subject, html });
+  }
 }
 
 class NoOpEmailService implements EmailService {
@@ -114,6 +128,13 @@ class NoOpEmailService implements EmailService {
 
   async sendWelcome({ to, name }: WelcomeArgs): Promise<void> {
     logger.info({ to, name }, "[NO SMTP] Welcome email (skipped)");
+  }
+
+  async sendWorkspaceInvite({ to, workspaceName, inviterName, url }: WorkspaceInviteArgs): Promise<void> {
+    logger.warn(
+      { to, workspaceName, inviterName, url },
+      "[NO SMTP] Workspace invite — copy the url to accept the invitation",
+    );
   }
 }
 

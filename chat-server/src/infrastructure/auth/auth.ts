@@ -11,6 +11,7 @@ import { controlDb } from "../database/control/client.js";
 import * as schema from "../database/control/schema.js";
 import { emailService } from "../email/email-service.js";
 import { AuthEventName, logAuthEvent } from "../audit/audit-log.js";
+import { announceProfileUpdate } from "../../modules/members/members.service.js";
 import { env, corsOrigins, adminUserIds } from "../../config/env.js";
 
 /**
@@ -258,6 +259,13 @@ export const auth = betterAuth({
             event: AuthEventName.UserCreated,
             metadata: { email: user.email },
           });
+        },
+      },
+      update: {
+        // A name/avatar change → refresh the directory in every workspace this
+        // user belongs to so author names/avatars update live (best-effort).
+        after: async (user) => {
+          await announceProfileUpdate(user.id);
         },
       },
     },

@@ -8,7 +8,11 @@ import { errorHandler } from "./shared/errors/error-handler.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { docsRouter } from "./modules/docs/docs.routes.js";
 import { workspacesRouter } from "./modules/workspaces/workspaces.routes.js";
+import { acceptInvitesRouter } from "./modules/members/accept-invites.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
+import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
+import { attachmentsRouter } from "./modules/attachments/attachments.routes.js";
+import { filesRouter } from "./modules/files/files.routes.js";
 
 /**
  * Builds the configured Express application.
@@ -53,6 +57,11 @@ app.get("/health", (_req, res) => {
 // API docs are public — no auth, mounted before any auth wall.
 app.use("/api/docs", docsRouter);
 
+// Signed-redirect for owned private-bucket objects (avatars + chat attachments).
+// Public: loaded by <img>/<video> tags that can't send the session cookie
+// cross-origin; the (namespaced, uuid-bearing) object key is the bearer token.
+app.use("/api/files", filesRouter);
+
 registerModuleRoutes(app);
 
 // Error handler MUST be last so it catches errors from every preceding layer.
@@ -60,5 +69,14 @@ app.use(errorHandler);
 
 function registerModuleRoutes(application: express.Express): void {
   application.use("/api/workspaces", authenticate, workspacesRouter);
+  // Invite acceptance is authed but NOT workspace-scoped — invitees aren't
+  // members yet, so this must sit outside the workspace membership wall.
+  application.use("/api/invites", authenticate, acceptInvitesRouter);
   application.use("/api/users", authenticate, usersRouter);
+  // The notification inbox is user-scoped and spans workspaces, so (like invite
+  // acceptance) it sits behind `authenticate` but outside the workspace wall.
+  application.use("/api/notifications", authenticate, notificationsRouter);
+  // Attachment policy is user-scoped (workspace-agnostic); presign is mounted
+  // on the channel router (needs the channel-membership context).
+  application.use("/api/attachments", authenticate, attachmentsRouter);
 }

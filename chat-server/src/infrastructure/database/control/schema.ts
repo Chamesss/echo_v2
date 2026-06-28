@@ -153,7 +153,10 @@ export const roleEnum = pgEnum("role", ["admin", "member"]);
 
 export const workspaces = pgTable("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
+  // Immutable URL/identifier (also the basis for the tenant schema name).
   slug: text("slug").notNull().unique(),
+  // Mutable display name (defaults to the slug at creation; editable in settings).
+  name: text("name").notNull(),
   ownerId: text("owner_id")
     .notNull()
     .references(() => users.id, { onDelete: "restrict" }),
@@ -180,6 +183,37 @@ export const tenantCatalog = pgTable("tenant_catalog", {
   schemaName: text("schema_name").notNull().unique(),
   schemaVersion: integer("schema_version").notNull().default(0),
 });
+
+/**
+ * Pending workspace invitations (the tokenized email-link flow).
+ *
+ * An admin creates a row addressed to an `email` with a target `role`; the raw
+ * token is emailed (as a link) and only its SHA-256 `tokenHash` is stored, so a
+ * DB leak can't yield usable invite links. Single-use (`acceptedAt`) and
+ * time-boxed (`expiresAt`). On accept we verify the signed-in user's email
+ * matches `email`, then create the membership. `invitedBy` is `set null` on user
+ * delete so the audit trail survives.
+ */
+export const inviteTokens = pgTable(
+  "invite_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: roleEnum("role").notNull().default("member"),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("invite_tokens_workspace_idx").on(t.workspaceId),
+    index("invite_tokens_email_idx").on(t.email),
+  ],
+);
 
 /**
  * Audit log for security-relevant events.
@@ -215,6 +249,65 @@ export const authEvents = pgTable(
   ],
 );
 
+/**
+ * User notification inbox (the awareness layer's persistent store).
+ *
+ * Control-plane (not tenant-scoped) so the cross-workspace inbox is a single
+ * query on `user_id`. `channel_id`/`message_id` reference rows in the workspace's
+ * tenant schema — there is no cross-schema FK, so they're bare ids resolved per
+ * workspace when rendering. `actor_id` joins control `users` for a live name.
+ *
+ * `type` is `'dm'` today (`'mention'` reserved). Two read states:
+ *   - `seenAt` — the user opened the notification tray (clears the global dot)
+ *   - `readAt` — the user opened this specific item / its conversation
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // 'message' (channel) | 'dm' | (future) 'mention'.
+    type: text("type").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id").notNull(),
+    // Channel name snapshot for display ("in #general"); null for DMs.
+    channelName: text("channel_name"),
+    messageId: uuid("message_id").notNull(),
+    // Reserved for the future tag/important system; unused for now.
+    important: boolean("important").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [index("notifications_user_idx").on(t.userId, t.createdAt)],
+);
+
+/**
+ * Per-user, per-workspace notification preference. A missing row means enabled
+ * (the default); a row with `enabled = false` silences the bell + toast for that
+ * workspace (unread counts still work). Keyed (user, workspace).
+ */
+export const notificationSettings = pgTable(
+  "notification_settings",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.workspaceId] })],
+);
+
 // ─── Inferred types ───────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -227,3 +320,9 @@ export type TenantCatalogEntry = typeof tenantCatalog.$inferSelect;
 export type NewTenantCatalogEntry = typeof tenantCatalog.$inferInsert;
 export type AuthEvent = typeof authEvents.$inferSelect;
 export type NewAuthEvent = typeof authEvents.$inferInsert;
+export type InviteToken = typeof inviteTokens.$inferSelect;
+export type NewInviteToken = typeof inviteTokens.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
+export type NotificationSetting = typeof notificationSettings.$inferSelect;
+export type NewNotificationSetting = typeof notificationSettings.$inferInsert;

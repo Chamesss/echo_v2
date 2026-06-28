@@ -11,7 +11,12 @@ import { corsOrigins } from "../../config/env.js";
 import { logger } from "../../shared/logger/logger.js";
 import { assertChannelAccess } from "../../modules/channels/channels.service.js";
 import { hub } from "./hub.js";
-import type { ClientFrame, ServerFrame } from "./protocol.js";
+import type { ClientFrame, ServerFrame, UserClientFrame, UserServerFrame } from "./protocol.js";
+
+/** What `handleUpgrade` hands to the `connection` event after auth passes. */
+type ConnectionInfo =
+  | { role: "workspace"; userId: string; workspaceId: string }
+  | { role: "user"; userId: string };
 
 /**
  * Attaches the realtime WebSocket server at `/ws`.
@@ -34,9 +39,11 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
   const alive = new WeakMap<WebSocket, boolean>();
 
   httpServer.on("upgrade", (req, socket, head) => {
-    // Only claim our own path; let other upgrade listeners (if any) handle theirs.
+    // Only claim our own paths; let other upgrade listeners (if any) handle theirs.
+    // `/ws`       — workspace socket (channel/message reconciliation).
+    // `/ws/user`  — awareness socket (cross-workspace unread + notifications).
     const url = new URL(req.url ?? "", "http://localhost");
-    if (url.pathname !== "/ws") return;
+    if (url.pathname !== "/ws" && url.pathname !== "/ws/user") return;
 
     handleUpgrade(req, socket, head, url, wss).catch((err) => {
       logger.warn({ err: (err as Error).message }, "ws upgrade failed");
@@ -44,12 +51,20 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
     });
   });
 
-  wss.on("connection", (ws: WebSocket, ctx: { userId: string; workspaceId: string }) => {
-    hub.add(ws, ctx);
+  wss.on("connection", (ws: WebSocket, info: ConnectionInfo) => {
     alive.set(ws, true);
-
     ws.on("pong", () => alive.set(ws, true));
-    ws.on("message", (data) => void onMessage(ws, ctx, data.toString()));
+
+    if (info.role === "user") {
+      hub.addUserSocket(ws, { userId: info.userId });
+      ws.on("message", (data) => void onUserMessage(ws, data.toString()));
+      ws.on("close", () => hub.removeUserSocket(ws));
+      ws.on("error", () => hub.removeUserSocket(ws));
+      return;
+    }
+
+    hub.add(ws, { userId: info.userId, workspaceId: info.workspaceId });
+    ws.on("message", (data) => void onMessage(ws, info, data.toString()));
     ws.on("close", () => hub.remove(ws));
     ws.on("error", () => hub.remove(ws));
   });
@@ -92,7 +107,16 @@ async function handleUpgrade(
   });
   if (!session?.user) return rejectUpgrade(socket, 401, "Unauthorized");
 
-  // 3. Workspace membership (socket is workspace-scoped).
+  // 2b. The awareness socket is user-scoped, not workspace-scoped: a valid
+  // session is enough (membership is enforced per-event when the server decides
+  // who to notify). No workspaceId, no channel subscriptions.
+  if (url.pathname === "/ws/user") {
+    return wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, { role: "user", userId: session.user.id } satisfies ConnectionInfo);
+    });
+  }
+
+  // 3. Workspace membership (the workspace socket is workspace-scoped).
   const workspaceId = url.searchParams.get("workspaceId");
   if (!workspaceId) return rejectUpgrade(socket, 400, "Missing workspaceId");
 
@@ -104,8 +128,24 @@ async function handleUpgrade(
   if (!member) return rejectUpgrade(socket, 403, "Not a workspace member");
 
   wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit("connection", ws, { userId: session.user.id, workspaceId });
+    wss.emit("connection", ws, {
+      role: "workspace",
+      userId: session.user.id,
+      workspaceId,
+    } satisfies ConnectionInfo);
   });
+}
+
+async function onUserMessage(ws: WebSocket, raw: string): Promise<void> {
+  let frame: UserClientFrame;
+  try {
+    frame = JSON.parse(raw);
+  } catch {
+    return sendUser(ws, { t: "error", message: "Invalid frame" });
+  }
+  // The awareness socket carries no subscriptions; heartbeat is all it sends.
+  if (frame.t === "ping") return sendUser(ws, { t: "pong" });
+  return sendUser(ws, { t: "error", message: "Unknown frame" });
 }
 
 async function onMessage(
@@ -149,6 +189,10 @@ async function onMessage(
 }
 
 function send(ws: WebSocket, frame: ServerFrame): void {
+  if (ws.readyState === 1) ws.send(JSON.stringify(frame));
+}
+
+function sendUser(ws: WebSocket, frame: UserServerFrame): void {
   if (ws.readyState === 1) ws.send(JSON.stringify(frame));
 }
 

@@ -4,7 +4,11 @@ import { apiFetch } from "@/lib/api";
 export interface Workspace {
   id: string;
   slug: string;
+  /** Mutable display name (defaults to the slug). */
+  name: string;
   role: "admin" | "member";
+  /** Whether the current user owns this workspace (gates delete). */
+  isOwner: boolean;
 }
 
 /**

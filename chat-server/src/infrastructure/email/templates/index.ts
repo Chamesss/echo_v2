@@ -168,6 +168,41 @@ export function changeEmailTemplate({
 }
 
 /**
+ * Sent when a workspace admin invites someone by email. The `url` carries the
+ * single-use invite token; clicking it lands on /accept-invite/:token in the
+ * frontend, which calls the accept endpoint.
+ */
+export function workspaceInviteTemplate({
+  workspaceName,
+  inviterName,
+  url,
+}: {
+  workspaceName: string;
+  inviterName: string;
+  url: string;
+}) {
+  return {
+    subject: `You're invited to ${workspaceName} on Chat`,
+    html: renderLayout(
+      "Workspace invitation",
+      `${inviterName} invited you to join ${workspaceName}.`,
+      `
+        <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;">Join ${escape(workspaceName)}</h1>
+        <p style="margin:0 0 24px;line-height:1.5;color:#374151;">
+          <strong>${escape(inviterName)}</strong> invited you to join the
+          <strong>${escape(workspaceName)}</strong> workspace on Chat. Click the
+          button below to accept. This invitation expires in 7 days.
+        </p>
+        ${ctaButton("Accept invitation", url)}
+        <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">
+          If you weren't expecting this invitation, you can safely ignore this email.
+        </p>
+      `,
+    ),
+  };
+}
+
+/**
  * Sent once on first sign-up. Cosmetic — Better Auth doesn't gate anything on
  * delivery, so a missed send is fine (logged via NoOpEmailService in dev).
  */

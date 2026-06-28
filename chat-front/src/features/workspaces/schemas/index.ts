@@ -20,3 +20,10 @@ export const createWorkspaceSchema = z.object({
 });
 
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
+
+/** Workspace rename (display name only — the slug is immutable). */
+export const updateWorkspaceSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(80, "At most 80 characters"),
+});
+
+export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>;

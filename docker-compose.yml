@@ -1,0 +1,46 @@
+# Local stack: Postgres + the chat-server.
+#
+#   docker compose up db          → just Postgres (handy for `pnpm dev` / tests)
+#   docker compose up --build     → Postgres + the built server
+#
+# NOTE: the server needs the control-plane migrations applied before it can
+# serve. After `db` is healthy, run them once against this database:
+#   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chat pnpm -F chat-server db:migrate
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: chat
+    ports:
+      - "5432:5432"
+    volumes:
+      - chat-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: .
+      dockerfile: chat-server/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/chat
+      # Replace with a real 32+ byte secret in any non-throwaway environment.
+      BETTER_AUTH_SECRET: change-me-change-me-change-me-change-me
+      BETTER_AUTH_URL: http://localhost:4000
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "4000:4000"
+
+volumes:
+  chat-db-data:

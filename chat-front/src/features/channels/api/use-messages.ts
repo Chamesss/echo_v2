@@ -1,14 +1,19 @@
+import { useCallback, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MessageWire } from "@server/infrastructure/realtime/protocol";
+import type { AttachmentWire, MessageWire } from "@server/infrastructure/realtime/protocol";
 import { apiFetch } from "@/lib/api";
 import {
+  mergeBatch,
   mergeMessage,
   optimisticMessage,
   sortMessages,
+  OPTIMISTIC_SEQ,
   type ChatMessage,
 } from "../realtime/message-cache";
-import { channelsKey, messagesKey } from "./keys";
-import type { ChannelDTO } from "./use-channels";
+import { historyKey, messagesKey } from "./keys";
+import { clearConversationUnread } from "./read-sync";
+
+const HISTORY_PAGE = 50;
 
 const base = (workspaceId: string, channelId: string) =>
   `/api/workspaces/${workspaceId}/channels/${channelId}/messages`;
@@ -24,14 +29,66 @@ interface MessagesResponse {
  * clobber live state.
  */
 export function useMessages(workspaceId: string, channelId: string) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: messagesKey(workspaceId, channelId),
     queryFn: async () => {
-      const { messages } = await apiFetch<MessagesResponse>(`${base(workspaceId, channelId)}?limit=50`);
+      const { messages } = await apiFetch<MessagesResponse>(
+        `${base(workspaceId, channelId)}?limit=${HISTORY_PAGE}`,
+      );
+      // A full page back ⇒ there may be older history to page in; a short page
+      // means this IS the whole conversation, so hide "Load earlier messages".
+      qc.setQueryData<boolean>(historyKey(workspaceId, channelId), messages.length >= HISTORY_PAGE);
       return sortMessages(messages as ChatMessage[]);
     },
     staleTime: Infinity,
   });
+}
+
+/**
+ * Keyset history pagination. Loads the page of messages older than the oldest
+ * one currently in the cache (`?before=<minSeq>`) and prepends it to the same
+ * flat array the realtime stream reconciles against — so live updates and
+ * back-scroll share one cache shape. `hasMore` flips false once a short page
+ * comes back. Optimistic rows (seq = MAX) are ignored when finding the floor.
+ */
+export function useOlderMessages(workspaceId: string, channelId: string) {
+  const qc = useQueryClient();
+  const key = messagesKey(workspaceId, channelId);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // `hasMore` is owned by the `historyKey` cache: the initial load seeds it
+  // (full page ⇒ true), and paging older updates it. Read reactively so the
+  // button hides the instant we know there's no older history. Defaults to
+  // false (no button) until the initial load decides — avoids a wrong flash on
+  // a fresh/empty channel.
+  const { data: hasMore = false } = useQuery({
+    queryKey: historyKey(workspaceId, channelId),
+    queryFn: () => false,
+    enabled: false,
+    initialData: false,
+  });
+
+  const loadOlder = useCallback(async () => {
+    if (isLoading || !hasMore) return;
+    const current = qc.getQueryData<ChatMessage[]>(key) ?? [];
+    const realSeqs = current.filter((m) => m.seq !== OPTIMISTIC_SEQ).map((m) => m.seq);
+    if (realSeqs.length === 0) return;
+    const before = Math.min(...realSeqs);
+
+    setIsLoading(true);
+    try {
+      const { messages } = await apiFetch<MessagesResponse>(
+        `${base(workspaceId, channelId)}?before=${before}&limit=${HISTORY_PAGE}`,
+      );
+      qc.setQueryData<boolean>(historyKey(workspaceId, channelId), messages.length >= HISTORY_PAGE);
+      qc.setQueryData<ChatMessage[]>(key, (old) => mergeBatch(old ?? [], messages));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [qc, key, workspaceId, channelId, isLoading, hasMore]);
+
+  return { loadOlder, isLoading, hasMore };
 }
 
 /** Catch-up fetch: every message changed after `since`, in clock order. */
@@ -59,15 +116,31 @@ export function useSendMessage(workspaceId: string, channelId: string, authorId:
   const key = messagesKey(workspaceId, channelId);
 
   return useMutation({
-    mutationFn: async ({ body }: { body: string }) => {
+    mutationFn: async ({
+      body,
+      attachments = [],
+      optimisticAttachments = [],
+    }: {
+      body: string;
+      /** `{ key, filename }` refs for already-uploaded files (server HEAD-verifies). */
+      attachments?: { key: string; filename: string }[];
+      /** Resolved wire attachments for the optimistic row (already on S3). */
+      optimisticAttachments?: AttachmentWire[];
+    }) => {
       const clientId = crypto.randomUUID();
-      const optimistic = optimisticMessage({ clientId, channelId, authorId, body });
+      const optimistic = optimisticMessage({
+        clientId,
+        channelId,
+        authorId,
+        body,
+        attachments: optimisticAttachments,
+      });
       qc.setQueryData<ChatMessage[]>(key, (old) => mergeMessage(old ?? [], optimistic, true));
 
       try {
         const message = await apiFetch<MessageWire>(base(workspaceId, channelId), {
           method: "POST",
-          body: { clientId, body },
+          body: { clientId, body, attachments },
         });
         qc.setQueryData<ChatMessage[]>(key, (old) => mergeMessage(old ?? [], message, true));
         return message;
@@ -85,10 +158,21 @@ export function useEditMessage(workspaceId: string, channelId: string) {
   const qc = useQueryClient();
   const key = messagesKey(workspaceId, channelId);
   return useMutation({
-    mutationFn: (input: { messageId: string; body: string }) =>
+    mutationFn: (input: {
+      messageId: string;
+      body: string;
+      /** Existing attachment ids to keep (omit → leave attachments untouched). */
+      keepAttachmentIds?: string[];
+      /** Newly-uploaded refs to add (server HEAD-verifies). */
+      attachments?: { key: string; filename: string }[];
+    }) =>
       apiFetch<MessageWire>(`${base(workspaceId, channelId)}/${input.messageId}`, {
         method: "PATCH",
-        body: { body: input.body },
+        body: {
+          body: input.body,
+          keepAttachmentIds: input.keepAttachmentIds,
+          attachments: input.attachments,
+        },
       }),
     onSuccess: (message) =>
       qc.setQueryData<ChatMessage[]>(key, (old) => mergeMessage(old ?? [], message, false)),
@@ -106,18 +190,19 @@ export function useDeleteMessage(workspaceId: string, channelId: string) {
   });
 }
 
-/** Advance the read cursor; zero this channel's unread in the channels list. */
+/** Advance the read cursor; zero this conversation's unread (channel OR DM list). */
 export function useMarkRead(workspaceId: string, channelId: string) {
   const qc = useQueryClient();
   return useMutation({
+    // The read cursor is channel-level — `/channels/:id/read`, NOT under
+    // `/messages` (`base`). Posting to the wrong path 404s silently and the
+    // cursor never advances (unread never clears, no receipts).
     mutationFn: (seq: number) =>
-      apiFetch<{ lastReadSeq: number }>(`${base(workspaceId, channelId)}/read`, {
-        method: "POST",
-        body: { seq },
-      }),
-    onSuccess: () =>
-      qc.setQueryData<ChannelDTO[]>(channelsKey(workspaceId), (old) =>
-        (old ?? []).map((c) => (c.id === channelId ? { ...c, unread: 0 } : c)),
+      apiFetch<{ lastReadSeq: number }>(
+        `/api/workspaces/${workspaceId}/channels/${channelId}/read`,
+        { method: "POST", body: { seq } },
       ),
+    // Clears the per-channel badge AND the workspace roll-up, consistently.
+    onSuccess: () => clearConversationUnread(qc, workspaceId, channelId),
   });
 }

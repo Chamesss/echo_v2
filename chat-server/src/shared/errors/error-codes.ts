@@ -20,6 +20,7 @@ export const ErrorCode = {
   NoSession: "no_session",
   Forbidden: "forbidden",
   NotAMember: "not_a_member",
+  InsufficientWorkspaceRole: "insufficient_workspace_role",
   MissingAuthHeader: "missing_auth",
   UnknownUser: "unknown_user",
 
@@ -31,11 +32,28 @@ export const ErrorCode = {
   SlugTaken: "slug_taken",
   UnknownOwner: "unknown_owner",
 
+  // ─── Membership / invites ────────────────────────────────────────
+  AlreadyAMember: "already_a_member",
+  CannotModifyOwner: "cannot_modify_owner",
+  NotWorkspaceOwner: "not_workspace_owner",
+  InviteNotFound: "invite_not_found",
+  InviteExpired: "invite_expired",
+  InviteAlreadyAccepted: "invite_already_accepted",
+  InviteEmailMismatch: "invite_email_mismatch",
+
   // ─── Channels / messages ─────────────────────────────────────────
   ChannelNotFound: "channel_not_found",
   NotAChannelMember: "not_a_channel_member",
+  CannotManageChannel: "cannot_manage_channel",
+  ChannelArchived: "channel_archived",
   MessageNotFound: "message_not_found",
   NotMessageAuthor: "not_message_author",
+
+  // ─── Attachments ─────────────────────────────────────────────────
+  AttachmentTooLarge: "attachment_too_large",
+  TooManyAttachments: "too_many_attachments",
+  AttachmentUploadIncomplete: "attachment_upload_incomplete",
+  InvalidAttachmentRef: "invalid_attachment_ref",
 
   // ─── Rate limiting ───────────────────────────────────────────────
   TooManyRequests: "too_many_requests",

@@ -50,6 +50,12 @@ const router = createBrowserRouter([
             path: "workspaces/create",
             lazy: lazyRoute(() => import("@/routes/workspaces/create")),
           },
+          // Invite acceptance: authed but NOT inside WorkspaceLayout (the visitor
+          // isn't a member yet, so the membership-checked shell would bounce them).
+          {
+            path: "accept-invite/:token",
+            lazy: lazyRoute(() => import("@/routes/accept-invite")),
+          },
 
           // ── Inside a workspace (sidebar shell) ──────────────────────────────
           {
@@ -60,6 +66,11 @@ const router = createBrowserRouter([
               {
                 path: "channels/:channelId",
                 lazy: lazyRoute(() => import("@/routes/workspace/channel")),
+              },
+              { path: "members", lazy: lazyRoute(() => import("@/routes/workspace/members")) },
+              {
+                path: "workspace-settings",
+                lazy: lazyRoute(() => import("@/routes/workspace/workspace-settings")),
               },
               { path: "settings", lazy: lazyRoute(() => import("@/routes/account")) },
               {

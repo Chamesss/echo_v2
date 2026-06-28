@@ -17,12 +17,18 @@ export const paths = {
 
   home: "/",
   workspaceCreate: "/workspaces/create",
+  /** Invite acceptance landing page (authed, outside the workspace shell). */
+  acceptInvite: (token: string) => `/accept-invite/${token}`,
 
   /** Workspace home. */
   workspace: (workspaceId: string) => `/dashboard/${workspaceId}`,
   /** A channel within the workspace shell. */
   workspaceChannel: (workspaceId: string, channelId: string) =>
     `/dashboard/${workspaceId}/channels/${channelId}`,
+  /** Member roster + invitations, rendered inside the workspace shell. */
+  workspaceMembers: (workspaceId: string) => `/dashboard/${workspaceId}/members`,
+  /** Workspace settings (rename/delete), rendered inside the workspace shell. */
+  workspaceManage: (workspaceId: string) => `/dashboard/${workspaceId}/workspace-settings`,
   /** Account settings, rendered inside the workspace shell. */
   workspaceSettings: (workspaceId: string) => `/dashboard/${workspaceId}/settings`,
   /** Admin dashboard, rendered inside the workspace shell (admin role only). */

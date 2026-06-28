@@ -1,0 +1,9 @@
+# Keep the build context lean — and keep secrets OUT of the image.
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+.git
+.github
+**/*.log
+docs

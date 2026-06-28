@@ -2,7 +2,6 @@ import pg from "pg";
 import { env } from "../../config/env.js";
 import { logger } from "../../shared/logger/logger.js";
 import { pool } from "../database/pool.js";
-import { type ChannelEvent, workspaceNotifyChannel } from "./protocol.js";
 
 /**
  * Cross-instance fan-out for realtime events.
@@ -12,34 +11,46 @@ import { type ChannelEvent, workspaceNotifyChannel } from "./protocol.js";
  * subscribers on instance B. This is that backplane — an interface so the
  * transport can be swapped (e.g. Redis) without touching the hub.
  *
+ * It is keyed by an opaque NOTIFY-channel NAME (e.g. `rt_ws_<id>` for a
+ * workspace, `rt_user_<id>` for a user's awareness stream). The hub builds those
+ * names via `workspaceNotifyChannel` / `userNotifyChannel`; the backplane just
+ * routes by string, so adding a new event scope is "pick a channel name."
+ *
  * `PgNotifyBackplane` rides Postgres LISTEN/NOTIFY: zero new infrastructure, and
  * the seq + REST-catch-up safety net covers NOTIFY's at-most-once delivery (a
  * dropped notification just means a client briefly trails and reconciles on the
  * next event or reconnect).
  */
 export interface Backplane {
-  /** Broadcast an event to every instance subscribed to the workspace. */
-  publish(workspaceId: string, event: ChannelEvent): Promise<void>;
-  /** Receive events for a workspace; returns an unsubscribe handle. */
-  subscribe(workspaceId: string, handler: (event: ChannelEvent) => void): () => void;
+  /** Broadcast an event to every instance subscribed to a NOTIFY channel. */
+  publish(channel: string, event: unknown): Promise<void>;
+  /**
+   * Broadcast many (channel, event) pairs in a SINGLE round-trip. Used by the
+   * message fan-out so notifying N recipients costs one DB call, not N.
+   */
+  publishMany(messages: ReadonlyArray<{ channel: string; event: unknown }>): Promise<void>;
+  /** Receive events for a NOTIFY channel; returns an unsubscribe handle. */
+  subscribe(channel: string, handler: (event: unknown) => void): () => void;
   close(): Promise<void>;
 }
 
 // pg_notify payloads are capped at 8000 bytes. Message bodies are length-limited
-// at the API layer (see messages.dto) so a full event envelope stays well under
-// this; we still guard so an oversized payload degrades to "skip the push"
-// (clients catch up via REST) instead of throwing inside a request.
+// at the API layer (see messages.dto) so a full event stays well under this; we
+// still guard so an oversized payload degrades to "skip the push" (clients catch
+// up via REST) instead of throwing inside a request.
 const MAX_PAYLOAD_BYTES = 7900;
 
-// NOTIFY channel names are Postgres identifiers; workspace ids are UUIDs from
-// our own DB, so this is belt-and-suspenders before quoting into LISTEN.
-const SAFE_WORKSPACE_ID = /^[0-9a-f-]{36}$/i;
+// NOTIFY channel names are Postgres identifiers we quote into LISTEN/UNLISTEN
+// (which can't be parameterized). Our names are `rt_ws_<uuid>` / `rt_user_<id>`;
+// the user id is Better-Auth-generated and URL-safe. Validate before quoting —
+// belt-and-suspenders against ever LISTENing an attacker-influenced string.
+const SAFE_CHANNEL = /^rt_(ws|user)_[A-Za-z0-9_-]{1,64}$/;
 
 export class PgNotifyBackplane implements Backplane {
   private client: pg.Client | null = null;
   private connecting: Promise<void> | null = null;
   private closed = false;
-  private readonly handlers = new Map<string, Set<(event: ChannelEvent) => void>>();
+  private readonly handlers = new Map<string, Set<(event: unknown) => void>>();
 
   /** Lazily (re)connect the dedicated LISTEN client and re-arm all channels. */
   private async ensureClient(): Promise<pg.Client> {
@@ -54,10 +65,10 @@ export class PgNotifyBackplane implements Backplane {
       client.on("error", (err) => this.onClientError(err));
       await client.connect();
       this.client = client;
-      // Re-LISTEN every workspace we currently have subscribers for (covers the
+      // Re-LISTEN every channel we currently have subscribers for (covers the
       // reconnect case after a dropped connection).
-      for (const workspaceId of this.handlers.keys()) {
-        await this.listen(workspaceId);
+      for (const channel of this.handlers.keys()) {
+        await this.listen(channel);
       }
     })();
     try {
@@ -72,7 +83,7 @@ export class PgNotifyBackplane implements Backplane {
     logger.error({ err: err.message }, "realtime backplane LISTEN client error; will reconnect");
     this.client = null;
     if (!this.closed && this.handlers.size > 0) {
-      // Reconnect lazily; ensureClient re-LISTENs active workspaces.
+      // Reconnect lazily; ensureClient re-LISTENs active channels.
       this.ensureClient().catch((e) =>
         logger.error({ err: (e as Error).message }, "realtime backplane reconnect failed"),
       );
@@ -81,73 +92,96 @@ export class PgNotifyBackplane implements Backplane {
 
   private onNotification(msg: pg.Notification): void {
     if (!msg.payload) return;
-    let parsed: { workspaceId: string; event: ChannelEvent };
+    // The NOTIFY channel name (msg.channel) tells us which subscribers to route
+    // to; the payload is the event itself.
+    const set = this.handlers.get(msg.channel);
+    if (!set || set.size === 0) return;
+    let event: unknown;
     try {
-      parsed = JSON.parse(msg.payload);
+      event = JSON.parse(msg.payload);
     } catch {
       logger.warn({ channel: msg.channel }, "realtime backplane: unparseable notification payload");
       return;
     }
-    const set = this.handlers.get(parsed.workspaceId);
-    if (!set) return;
     for (const handler of set) {
       try {
-        handler(parsed.event);
+        handler(event);
       } catch (err) {
         logger.error({ err: (err as Error).message }, "realtime backplane handler threw");
       }
     }
   }
 
-  private async listen(workspaceId: string): Promise<void> {
-    if (!SAFE_WORKSPACE_ID.test(workspaceId)) {
-      throw new Error(`Unsafe workspace id for LISTEN: ${workspaceId}`);
+  private async listen(channel: string): Promise<void> {
+    if (!SAFE_CHANNEL.test(channel)) {
+      throw new Error(`Unsafe NOTIFY channel for LISTEN: ${channel}`);
     }
-    await this.client?.query(`LISTEN "${workspaceNotifyChannel(workspaceId)}"`);
+    await this.client?.query(`LISTEN "${channel}"`);
   }
 
-  async publish(workspaceId: string, event: ChannelEvent): Promise<void> {
-    const payload = JSON.stringify({ workspaceId, event });
+  async publish(channel: string, event: unknown): Promise<void> {
+    const payload = JSON.stringify(event);
     if (Buffer.byteLength(payload, "utf8") > MAX_PAYLOAD_BYTES) {
       logger.warn(
-        { workspaceId, channelId: event.channelId, kind: event.kind },
+        { channel, kind: (event as { kind?: string }).kind },
         "realtime event exceeds NOTIFY payload limit; skipping push (clients will catch up)",
       );
       return;
     }
     // NOTIFY via the pool (parameterized through pg_notify) so publishing never
     // depends on the dedicated LISTEN client's connection state.
-    await pool.query("SELECT pg_notify($1, $2)", [workspaceNotifyChannel(workspaceId), payload]);
+    await pool.query("SELECT pg_notify($1, $2)", [channel, payload]);
   }
 
-  subscribe(workspaceId: string, handler: (event: ChannelEvent) => void): () => void {
-    let set = this.handlers.get(workspaceId);
+  async publishMany(messages: ReadonlyArray<{ channel: string; event: unknown }>): Promise<void> {
+    const channels: string[] = [];
+    const payloads: string[] = [];
+    for (const m of messages) {
+      const payload = JSON.stringify(m.event);
+      if (Buffer.byteLength(payload, "utf8") > MAX_PAYLOAD_BYTES) {
+        logger.warn(
+          { channel: m.channel, kind: (m.event as { kind?: string }).kind },
+          "realtime event exceeds NOTIFY payload limit; skipping push (clients will catch up)",
+        );
+        continue;
+      }
+      channels.push(m.channel);
+      payloads.push(payload);
+    }
+    if (channels.length === 0) return;
+    // One round-trip: fire every pg_notify from a single zipped statement.
+    await pool.query(
+      `SELECT pg_notify(c, p) FROM unnest($1::text[], $2::text[]) AS t(c, p)`,
+      [channels, payloads],
+    );
+  }
+
+  subscribe(channel: string, handler: (event: unknown) => void): () => void {
+    let set = this.handlers.get(channel);
     const isFirst = !set;
     if (!set) {
       set = new Set();
-      this.handlers.set(workspaceId, set);
+      this.handlers.set(channel, set);
     }
     set.add(handler);
 
     if (isFirst) {
-      // First subscriber for this workspace on this instance → start LISTENing.
+      // First subscriber for this channel on this instance → start LISTENing.
       this.ensureClient()
-        .then(() => this.listen(workspaceId))
+        .then(() => this.listen(channel))
         .catch((err) =>
-          logger.error({ err: (err as Error).message, workspaceId }, "realtime LISTEN failed"),
+          logger.error({ err: (err as Error).message, channel }, "realtime LISTEN failed"),
         );
     }
 
     return () => {
-      const current = this.handlers.get(workspaceId);
+      const current = this.handlers.get(channel);
       if (!current) return;
       current.delete(handler);
       if (current.size === 0) {
-        this.handlers.delete(workspaceId);
-        if (SAFE_WORKSPACE_ID.test(workspaceId)) {
-          this.client
-            ?.query(`UNLISTEN "${workspaceNotifyChannel(workspaceId)}"`)
-            .catch(() => {});
+        this.handlers.delete(channel);
+        if (SAFE_CHANNEL.test(channel)) {
+          this.client?.query(`UNLISTEN "${channel}"`).catch(() => {});
         }
       }
     };

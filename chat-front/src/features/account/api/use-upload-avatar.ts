@@ -1,6 +1,17 @@
 import { useMutation } from "@tanstack/react-query";
 import { authClient } from "@/lib/auth-client";
 import { ApiError, apiFetch } from "@/lib/api";
+import { env } from "@/config/env";
+
+/**
+ * Stable URL for an owned, private-bucket object via the server's signed-redirect
+ * endpoint. The bucket is private, so we never persist the raw S3 public URL
+ * (it 403s); we persist this pointer instead and the server 302s each load to a
+ * freshly-signed GET. Mirrors how message attachments are served.
+ */
+function fileProxyUrl(key: string): string {
+  return `${env.VITE_API_URL}/api/files?key=${encodeURIComponent(key)}`;
+}
 
 interface PresignResponse {
   uploadUrl: string;
@@ -54,13 +65,16 @@ export function useUploadAvatar() {
         throw new Error(`Upload to storage failed (HTTP ${uploadResponse.status})`);
       }
 
-      // 3. Persist the URL on the user row via Better Auth.
-      const updated = await authClient.updateUser({ image: presign.publicUrl });
+      // 3. Persist the URL on the user row via Better Auth. The bucket is
+      // private, so we store the signed-redirect pointer (not presign.publicUrl,
+      // which 403s) — the server re-signs each load.
+      const imageUrl = fileProxyUrl(presign.key);
+      const updated = await authClient.updateUser({ image: imageUrl });
       if (updated.error) {
         throw new Error(updated.error.message ?? "Could not save avatar URL");
       }
 
-      return { publicUrl: presign.publicUrl };
+      return { publicUrl: imageUrl };
     },
   });
 }

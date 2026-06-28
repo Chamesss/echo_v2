@@ -22,6 +22,34 @@
       "when": 1781133478928,
       "tag": "0002_overjoyed_synch",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781309139887,
+      "tag": "0003_thick_black_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781313379740,
+      "tag": "0004_living_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781320819016,
+      "tag": "0005_bitter_dreadnoughts",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781360483388,
+      "tag": "0006_living_thunderbolt",
+      "breakpoints": true
     }
   ]
 }

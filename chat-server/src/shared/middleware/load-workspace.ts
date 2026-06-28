@@ -7,7 +7,14 @@ import { ForbiddenError, NotFoundError } from '../errors/app-error.js';
 declare global {
   namespace Express {
     interface Request {
-      workspace: { id: string; slug: string; role: 'admin' | 'member' };
+      workspace: {
+        id: string;
+        slug: string;
+        name: string;
+        role: 'admin' | 'member';
+        /** Whether the caller is the workspace owner (gates destructive actions). */
+        isOwner: boolean;
+      };
     }
   }
 }
@@ -45,6 +52,8 @@ export const loadWorkspace: RequestHandler = async (req, _res, next) => {
       .select({
         id: workspaces.id,
         slug: workspaces.slug,
+        name: workspaces.name,
+        ownerId: workspaces.ownerId,
         role: memberships.role,
       })
       .from(memberships)
@@ -61,7 +70,8 @@ export const loadWorkspace: RequestHandler = async (req, _res, next) => {
       throw new ForbiddenError('You are not a member of this workspace', 'not_a_member');
     }
 
-    req.workspace = row;
+    const { ownerId, ...workspace } = row;
+    req.workspace = { ...workspace, isOwner: ownerId === req.user.id };
     next();
   } catch (err) {
     next(err);

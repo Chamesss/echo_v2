@@ -1,23 +1,34 @@
 import { Router } from "express";
 import { validate } from "../../shared/middleware/validate.js";
 import { asyncHandler } from "../../shared/middleware/async-handler.js";
+import { presignAttachmentBody } from "../attachments/attachments.dto.js";
+import { presignAttachmentController } from "../attachments/attachments.controller.js";
 import {
+  addChannelMemberBody,
   createChannelBody,
   editMessageBody,
   listMessagesQuery,
   markReadBody,
   sendMessageBody,
+  updateChannelBody,
 } from "./channels.dto.js";
 import {
+  addChannelMemberController,
   createChannelController,
+  deleteChannelController,
   deleteMessageController,
   editMessageController,
   getChannelController,
   joinChannelController,
+  leaveChannelController,
+  listChannelMembersController,
+  listChannelReadsController,
   listChannelsController,
   listMessagesController,
   markReadController,
+  removeChannelMemberController,
   sendMessageController,
+  updateChannelController,
 } from "./channels.controller.js";
 
 /**
@@ -47,7 +58,27 @@ channelsRouter.post(
   asyncHandler(createChannelController),
 );
 channelsRouter.get("/:channelId", asyncHandler(getChannelController));
+channelsRouter.patch(
+  "/:channelId",
+  validate({ body: updateChannelBody }),
+  asyncHandler(updateChannelController),
+);
+channelsRouter.delete("/:channelId", asyncHandler(deleteChannelController));
 channelsRouter.post("/:channelId/join", asyncHandler(joinChannelController));
+channelsRouter.post("/:channelId/leave", asyncHandler(leaveChannelController));
+
+// Channel membership (private-channel management). Authz is enforced in the
+// service: any member may add; admin-or-creator may remove.
+channelsRouter.get("/:channelId/members", asyncHandler(listChannelMembersController));
+channelsRouter.post(
+  "/:channelId/members",
+  validate({ body: addChannelMemberBody }),
+  asyncHandler(addChannelMemberController),
+);
+channelsRouter.delete(
+  "/:channelId/members/:userId",
+  asyncHandler(removeChannelMemberController),
+);
 
 channelsRouter.get(
   "/:channelId/messages",
@@ -72,4 +103,16 @@ channelsRouter.post(
   "/:channelId/read",
   validate({ body: markReadBody }),
   asyncHandler(markReadController),
+);
+
+// Read receipts: every member's read cursor for the channel ("seen by who").
+channelsRouter.get("/:channelId/reads", asyncHandler(listChannelReadsController));
+
+// Attachments: mint a presigned S3 PUT for a file the caller wants to attach.
+// Channel membership is enforced in the service. The uploaded keys are then
+// passed back when posting the message (POST /:channelId/messages).
+channelsRouter.post(
+  "/:channelId/attachments/presign",
+  validate({ body: presignAttachmentBody }),
+  asyncHandler(presignAttachmentController),
 );

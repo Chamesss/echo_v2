@@ -23,3 +23,13 @@ export const createWorkspaceBody = z.object({
 });
 
 export type CreateWorkspaceBody = z.infer<typeof createWorkspaceBody>;
+
+/**
+ * Rename a workspace's display name. The slug is immutable (it backs the tenant
+ * schema name), so only `name` is editable.
+ */
+export const updateWorkspaceBody = z.object({
+  name: z.string().trim().min(1, "Name is required").max(80),
+});
+
+export type UpdateWorkspaceBody = z.infer<typeof updateWorkspaceBody>;

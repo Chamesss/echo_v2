@@ -1,4 +1,9 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../../config/env.js";
 import { logger } from "../../shared/logger/logger.js";
@@ -7,6 +12,12 @@ interface PresignArgs {
   key: string;
   contentType: string;
   contentLength: number;
+  /**
+   * Optional `Content-Disposition` baked into the signed PUT. Used to force a
+   * download (`attachment; filename="…"`) for non-inline/unknown types so they
+   * can't execute inline when opened. The browser PUT must echo this header.
+   */
+  contentDisposition?: string;
   expiresInSeconds?: number;
 }
 
@@ -14,6 +25,14 @@ interface PresignResult {
   uploadUrl: string;
   publicUrl: string;
   key: string;
+  /** Headers the browser MUST send on the PUT to match the signature. */
+  requiredHeaders: Record<string, string>;
+}
+
+/** Object metadata read back from S3 (the authoritative type/size after upload). */
+export interface HeadObjectResult {
+  contentType: string;
+  contentLength: number;
 }
 
 /**
@@ -35,7 +54,19 @@ export interface S3Service {
   isConfigured(): boolean;
   createPresignedUploadUrl(args: PresignArgs): Promise<PresignResult>;
   publicUrlFor(key: string): string;
+  /**
+   * A short-lived presigned GET URL — how private objects (chat attachments) are
+   * read. Authenticated as our credentials, so it works on a private bucket and
+   * bypasses the bucket's public-access block; expires, so a leaked URL isn't
+   * forever-readable.
+   */
+  getDownloadUrl(key: string, expiresInSeconds?: number): Promise<string>;
+  /** Read an object's authoritative type/size, or `null` if it doesn't exist. */
+  headObject(key: string): Promise<HeadObjectResult | null>;
 }
+
+/** Default lifetime for a presigned GET URL (6h). Re-signed on each message read. */
+const DOWNLOAD_URL_TTL_SECONDS = 6 * 60 * 60;
 
 class NotConfiguredError extends Error {
   constructor() {
@@ -66,6 +97,7 @@ class ConfiguredS3Service implements S3Service {
     key,
     contentType,
     contentLength,
+    contentDisposition,
     expiresInSeconds = 300,
   }: PresignArgs): Promise<PresignResult> {
     const command = new PutObjectCommand({
@@ -73,19 +105,52 @@ class ConfiguredS3Service implements S3Service {
       Key: key,
       ContentType: contentType,
       ContentLength: contentLength,
+      ...(contentDisposition ? { ContentDisposition: contentDisposition } : {}),
     });
     const uploadUrl = await getSignedUrl(this.client, command, {
       expiresIn: expiresInSeconds,
     });
+    // The browser PUT must send exactly the headers that were signed.
+    const requiredHeaders: Record<string, string> = { "Content-Type": contentType };
+    if (contentDisposition) requiredHeaders["Content-Disposition"] = contentDisposition;
     return {
       uploadUrl,
       publicUrl: this.publicUrlFor(key),
       key,
+      requiredHeaders,
     };
   }
 
   publicUrlFor(key: string): string {
     return `${this.publicUrlBase}/${encodeURI(key)}`;
+  }
+
+  async getDownloadUrl(
+    key: string,
+    expiresInSeconds = DOWNLOAD_URL_TTL_SECONDS,
+  ): Promise<string> {
+    return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {
+      expiresIn: expiresInSeconds,
+    });
+  }
+
+  async headObject(key: string): Promise<HeadObjectResult | null> {
+    try {
+      const out = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      return {
+        contentType: out.ContentType ?? "application/octet-stream",
+        contentLength: out.ContentLength ?? 0,
+      };
+    } catch (err) {
+      // Missing object (404/NotFound) → null so the caller rejects the send.
+      const name = (err as { name?: string }).name;
+      if (name === "NotFound" || name === "NoSuchKey" || name === "NotFoundException") {
+        return null;
+      }
+      throw err;
+    }
   }
 }
 
@@ -99,6 +164,14 @@ class NotConfiguredS3Service implements S3Service {
   }
 
   publicUrlFor(): string {
+    throw new NotConfiguredError();
+  }
+
+  async getDownloadUrl(): Promise<string> {
+    throw new NotConfiguredError();
+  }
+
+  async headObject(): Promise<HeadObjectResult | null> {
     throw new NotConfiguredError();
   }
 }

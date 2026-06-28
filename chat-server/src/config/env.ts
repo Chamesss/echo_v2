@@ -63,6 +63,15 @@ const schema = z.object({
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
   AVATAR_MAX_SIZE_MB: z.coerce.number().int().min(1).max(50).default(5),
+  // Per-category message-attachment size caps (MB) + count cap per message.
+  // Drive the attachment policy (modules/attachments/attachment-policy.ts) so
+  // limits are tunable per deploy without code changes.
+  ATTACH_IMAGE_MAX_MB: z.coerce.number().int().min(1).max(2000).default(25),
+  ATTACH_VIDEO_MAX_MB: z.coerce.number().int().min(1).max(2000).default(200),
+  ATTACH_AUDIO_MAX_MB: z.coerce.number().int().min(1).max(2000).default(50),
+  ATTACH_DOC_MAX_MB: z.coerce.number().int().min(1).max(2000).default(50),
+  ATTACH_FILE_MAX_MB: z.coerce.number().int().min(1).max(2000).default(50),
+  ATTACH_MAX_PER_MESSAGE: z.coerce.number().int().min(1).max(50).default(10),
 });
 
 export const env = schema.parse(process.env);

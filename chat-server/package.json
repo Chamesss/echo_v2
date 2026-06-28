@@ -7,14 +7,17 @@
     "dev": "tsx watch src/server.ts",
     "db:studio": "drizzle-kit studio --port 8000 --verbose --config=drizzle.config.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:drop": "drizzle-kit drop",
     "db:make-admin": "tsx src/scripts/make-admin.ts",
     "db:add-member": "tsx src/scripts/add-member.ts",
     "db:migrate-tenants": "tsx src/scripts/migrate-tenants.ts",
-    "db:migrate-tenants": "tsx src/scripts/migrate-tenants.ts"
+    "db:reset-conversations": "tsx src/scripts/reset-conversations.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.0.0",
@@ -41,6 +44,7 @@
     "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.8"
   }
 }
