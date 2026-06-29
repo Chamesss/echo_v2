@@ -26,6 +26,11 @@ import { filesRouter } from "./modules/files/files.routes.js";
  */
 export const app = express();
 
+// Behind Render/Railway's TLS-terminating proxy: trust the forwarded headers
+// (one hop) so `req.ip`/`req.protocol` reflect the real client + https — needed
+// for correct rate limiting, secure-cookie handling, and redirect URLs.
+app.set("trust proxy", 1);
+
 // CORS must be first so it handles the OPTIONS preflight before any other
 // middleware decides to short-circuit. `credentials: true` is required for
 // the browser to send/receive Better Auth's session cookie across origins.

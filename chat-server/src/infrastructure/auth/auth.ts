@@ -220,6 +220,13 @@ export const auth = betterAuth({
   },
 
   advanced: {
+    // Behind Render/Railway's TLS-terminating proxy the real client IP arrives in
+    // `X-Forwarded-For`; without this Better Auth can't resolve an IP and all
+    // requests fall into ONE shared rate-limit bucket (the startup warning). Read
+    // the forwarded header so rate limiting buckets per-client.
+    ipAddress: {
+      ipAddressHeaders: ["x-forwarded-for"],
+    },
     defaultCookieAttributes: {
       httpOnly: true,
       secure: isProduction,
