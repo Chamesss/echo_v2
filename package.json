@@ -2,22 +2,20 @@
   "name": "chat-workspace",
   "version": "0.1.0",
   "private": true,
+  "workspaces": ["chat-server", "chat-front", "packages/*"],
   "scripts": {
-    "dev": "concurrently -n front,server,studio -c green,blue,magenta \"pnpm -F chat-front exec vite\" \"pnpm -F chat-server exec tsx watch src/server.ts\" \"pnpm -F chat-server exec drizzle-kit studio --port 8000 --verbose\"",
-    "dev:app": "concurrently -n front,server -c green,blue \"pnpm -F chat-front exec vite\" \"pnpm -F chat-server exec tsx watch src/server.ts\"",
-    "dev:server": "pnpm --filter chat-server dev",
-    "dev:front": "pnpm --filter chat-front dev",
-    "db:migrate": "pnpm --filter chat-server db:migrate",
-    "db:studio": "pnpm --filter chat-server db:studio",
-    "build": "pnpm -r build",
-    "test": "pnpm -r --if-present test",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "dev": "concurrently -n front,server,studio -c green,blue,magenta \"bun run --filter chat-front dev\" \"bun run --filter chat-server dev\" \"bun run --filter chat-server db:studio\"",
+    "dev:app": "concurrently -n front,server -c green,blue \"bun run --filter chat-front dev\" \"bun run --filter chat-server dev\"",
+    "dev:server": "bun run --filter chat-server dev",
+    "dev:front": "bun run --filter chat-front dev",
+    "db:migrate": "bun run --filter chat-server db:migrate",
+    "db:studio": "bun run --filter chat-server db:studio",
+    "build": "bun run --filter chat-front build",
+    "test": "bun run --filter '*' test",
+    "typecheck": "bun run --filter '*' typecheck"
   },
-  "packageManager": "pnpm@9.0.0",
-  "pnpm": {
-    "overrides": {
-      "esbuild": "^0.25.0"
-    }
+  "overrides": {
+    "esbuild": "^0.25.0"
   },
   "devDependencies": {
     "concurrently": "^10.0.3"

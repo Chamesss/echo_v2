@@ -1,7 +1,7 @@
 /**
  * Add an existing user to a workspace (dev helper).
  *
- * Usage:  pnpm db:add-member <workspace-slug> <user-email> [role]
+ * Usage:  bun run db:add-member <workspace-slug> <user-email> [role]
  *   role defaults to "member"; pass "admin" for a workspace admin.
  *
  * Stand-in for the not-yet-built invite flow — useful for testing multi-user
@@ -19,7 +19,7 @@ const email = process.argv[3]?.trim();
 const role = (process.argv[4]?.trim() ?? "member") as "admin" | "member";
 
 if (!slug || !email) {
-  console.error("Usage: pnpm db:add-member <workspace-slug> <user-email> [admin|member]");
+  console.error("Usage: bun run db:add-member <workspace-slug> <user-email> [admin|member]");
   process.exit(1);
 }
 if (role !== "admin" && role !== "member") {

@@ -1,4 +1,4 @@
-import { env } from "@/config/env";
+import { API_URL } from "@/config/env";
 
 /**
  * Custom event fired by `apiFetch` whenever a request comes back 401.
@@ -38,7 +38,7 @@ interface ApiFetchOptions extends Omit<RequestInit, "body"> {
  * Thin fetch wrapper used by every React Query hook in `features/<x>/api/`.
  *
  * Adds four things the rest of the app doesn't have to repeat:
- *   - Base URL (env.VITE_API_URL)
+ *   - Base URL (API_URL — VITE_API_URL in dev, same-origin in prod)
  *   - `credentials: 'include'` so Better Auth's session cookie crosses origins
  *   - JSON serialization and non-2xx error throwing
  *   - 401 dispatch to the global unauthorized handler so any request that
@@ -50,7 +50,7 @@ interface ApiFetchOptions extends Omit<RequestInit, "body"> {
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
   const { body, headers, ...rest } = options;
 
-  const response = await fetch(`${env.VITE_API_URL}${path}`, {
+  const response = await fetch(`${API_URL}${path}`, {
     ...rest,
     credentials: "include",
     headers: {

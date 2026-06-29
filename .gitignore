@@ -1,2 +1,11 @@
 node_modules
 .claude
+
+# Secrets — never commit any real env file. `.env.example` is the only one kept.
+.env
+.env.*
+!.env.example
+
+# Build output
+dist
+*.log

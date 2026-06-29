@@ -10,7 +10,7 @@ import { workspaces, memberships, tenantCatalog } from '../database/control/sche
  *
  * Stored in `tenant_catalog.schema_version` at provision time. When the tenant
  * DDL changes, bump this constant, add a numbered file under
- * `database/tenant/migrations/`, and run `pnpm db:migrate-tenants` to upgrade
+ * `database/tenant/migrations/`, and run `bun run db:migrate-tenants` to upgrade
  * existing workspaces. The version column is what lets us know at runtime
  * whether a given workspace's schema is up to date.
  *

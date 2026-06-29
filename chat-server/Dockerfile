@@ -1,35 +1,39 @@
-# Multi-stage build for chat-server (a pnpm workspace package).
+# Single-image build for the whole app on the Bun runtime: installs the Bun
+# workspace, builds the React SPA, and runs the Express + WebSocket server (which
+# also serves the SPA) — one long-running process, one origin.
 #
 # IMPORTANT: build context must be the REPO ROOT so the workspace manifests +
 # lockfile are present. From the repo root:
-#   docker build -f chat-server/Dockerfile -t chat-server .
-# (docker-compose.yml already sets the context correctly.)
+#   docker build -f chat-server/Dockerfile -t chat .
+# (docker-compose.yml + render.yaml already set the context correctly.)
 
-FROM node:22-slim AS base
-ENV PNPM_HOME=/pnpm
-ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+# ── Install the whole workspace (layer cached on the manifests + lockfile) ──────
+FROM oven/bun:1 AS deps
 WORKDIR /repo
-
-# ── Install prod+dev deps for chat-server's subtree (layer cached on manifests) ─
-FROM base AS deps
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY package.json bun.lock ./
 COPY chat-server/package.json chat-server/
 COPY chat-front/package.json chat-front/
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter chat-server...
+RUN bun install --frozen-lockfile
 
-# ── Compile TS → dist, then produce a self-contained prod-only deploy dir ──────
+# ── Build the frontend (emits chat-front/dist) ─────────────────────────────────
 FROM deps AS build
-COPY chat-server/ chat-server/
-RUN pnpm --filter chat-server build
-RUN pnpm --filter chat-server deploy --prod /app
+# Vite bakes VITE_* vars at BUILD time. VITE_API_URL is intentionally left unset
+# (the SPA falls back to same-origin in prod). Pass VITE_TURNSTILE_SITE_KEY as a
+# build arg ONLY if you also set TURNSTILE_SECRET_KEY at runtime — enabling one
+# without the other locks users out of auth. Leave both unset to disable CAPTCHA.
+ARG VITE_TURNSTILE_SITE_KEY=""
+ENV VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY
+COPY . .
+RUN bun run --filter chat-front build
 
-# ── Minimal runtime image ──────────────────────────────────────────────────────
-FROM node:22-slim AS runtime
-WORKDIR /app
+# ── Runtime: run the server straight from TypeScript on Bun ─────────────────────
+FROM oven/bun:1 AS runtime
+WORKDIR /repo
 ENV NODE_ENV=production
-# Carries dist/ (incl. dist/src/server.js), drizzle/ migrations, and prod node_modules.
-COPY --from=build /app /app
+# Where app.ts looks for the built SPA to serve.
+ENV FRONT_DIST_DIR=/repo/chat-front/dist
+# Carries sources, the installed workspace node_modules, and the built SPA.
+COPY --from=build /repo /repo
+# Render/Railway inject PORT; the server reads process.env.PORT (default 4000).
 EXPOSE 4000
-CMD ["node", "dist/src/server.js"]
+CMD ["bun", "run", "chat-server/src/server.ts"]

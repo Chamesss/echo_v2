@@ -1,7 +1,7 @@
 /**
  * Upgrade every tenant schema to the current `TENANT_SCHEMA_VERSION`.
  *
- * Usage:  pnpm db:migrate-tenants
+ * Usage:  bun run db:migrate-tenants
  *
  * New tenants are provisioned directly from `tenant/init.sql` (already current),
  * so this only touches workspaces whose `tenant_catalog.schema_version` is

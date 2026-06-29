@@ -1,11 +1,11 @@
-# Local stack: Postgres + the chat-server.
+# Local stack: Postgres + the full app (Bun: Express SPA + REST + WebSockets).
 #
-#   docker compose up db          → just Postgres (handy for `pnpm dev` / tests)
-#   docker compose up --build     → Postgres + the built server
+#   docker compose up db          → just Postgres (handy for `bun run dev` / tests)
+#   docker compose up --build     → Postgres + the built app on http://localhost:4000
 #
 # NOTE: the server needs the control-plane migrations applied before it can
 # serve. After `db` is healthy, run them once against this database:
-#   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chat pnpm -F chat-server db:migrate
+#   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chat bun run --filter chat-server db:migrate
 
 services:
   db:
@@ -31,14 +31,21 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Secrets (BETTER_AUTH_SECRET, S3, SMTP, OAuth, Turnstile, …) come from your
+    # LOCAL, git-ignored chat-server/.env — never hard-code them in this file,
+    # which IS committed. Copy chat-server/.env.example → chat-server/.env first.
+    env_file:
+      - ./chat-server/.env
+    # Infra values for the compose stack. `environment` overrides `env_file`, so
+    # these win over whatever DATABASE_URL / URLs your .env has for normal dev.
     environment:
       NODE_ENV: production
       PORT: "4000"
+      # Point at the `db` service in this compose network (not localhost).
       DATABASE_URL: postgresql://postgres:postgres@db:5432/chat
-      # Replace with a real 32+ byte secret in any non-throwaway environment.
-      BETTER_AUTH_SECRET: change-me-change-me-change-me-change-me
+      # Single origin: the server serves the SPA, so the browser origin IS :4000.
       BETTER_AUTH_URL: http://localhost:4000
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: http://localhost:4000
     ports:
       - "4000:4000"
 

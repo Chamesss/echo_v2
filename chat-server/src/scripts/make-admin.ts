@@ -1,7 +1,7 @@
 /**
  * Promote a user to the global "admin" role by email.
  *
- * Usage:  pnpm db:make-admin you@example.com
+ * Usage:  bun run db:make-admin you@example.com
  *
  * This is the bootstrap path for the /admin dashboard: the dashboard gates on
  * `users.role === 'admin'`, and there's no one to click "make admin" until the
@@ -16,7 +16,7 @@ import { users } from "../infrastructure/database/control/schema.js";
 const email = process.argv[2]?.trim();
 
 if (!email) {
-  console.error("Usage: pnpm db:make-admin <email>");
+  console.error("Usage: bun run db:make-admin <email>");
   process.exit(1);
 }
 

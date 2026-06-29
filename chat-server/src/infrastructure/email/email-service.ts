@@ -83,12 +83,21 @@ class SmtpEmailService implements EmailService {
     await this.send({ to, subject, html });
   }
 
-  async sendVerificationEmail({ to, name, url }: VerifyEmailArgs): Promise<void> {
+  async sendVerificationEmail({
+    to,
+    name,
+    url,
+  }: VerifyEmailArgs): Promise<void> {
     const { subject, html } = verifyEmailTemplate({ name, url });
     await this.send({ to, subject, html });
   }
 
-  async sendChangeEmailConfirmation({ to, name, newEmail, url }: ChangeEmailArgs): Promise<void> {
+  async sendChangeEmailConfirmation({
+    to,
+    name,
+    newEmail,
+    url,
+  }: ChangeEmailArgs): Promise<void> {
     const { subject, html } = changeEmailTemplate({ name, newEmail, url });
     await this.send({ to, subject, html });
   }
@@ -98,8 +107,17 @@ class SmtpEmailService implements EmailService {
     await this.send({ to, subject, html });
   }
 
-  async sendWorkspaceInvite({ to, workspaceName, inviterName, url }: WorkspaceInviteArgs): Promise<void> {
-    const { subject, html } = workspaceInviteTemplate({ workspaceName, inviterName, url });
+  async sendWorkspaceInvite({
+    to,
+    workspaceName,
+    inviterName,
+    url,
+  }: WorkspaceInviteArgs): Promise<void> {
+    const { subject, html } = workspaceInviteTemplate({
+      workspaceName,
+      inviterName,
+      url,
+    });
     await this.send({ to, subject, html });
   }
 }
@@ -112,14 +130,23 @@ class NoOpEmailService implements EmailService {
     );
   }
 
-  async sendVerificationEmail({ to, name, url }: VerifyEmailArgs): Promise<void> {
+  async sendVerificationEmail({
+    to,
+    name,
+    url,
+  }: VerifyEmailArgs): Promise<void> {
     logger.warn(
       { to, name, url },
       "[NO SMTP] Verification email — copy the url to verify the address",
     );
   }
 
-  async sendChangeEmailConfirmation({ to, name, newEmail, url }: ChangeEmailArgs): Promise<void> {
+  async sendChangeEmailConfirmation({
+    to,
+    name,
+    newEmail,
+    url,
+  }: ChangeEmailArgs): Promise<void> {
     logger.warn(
       { to, name, newEmail, url },
       "[NO SMTP] Email change confirmation — copy the url to authorize the change",
@@ -130,7 +157,12 @@ class NoOpEmailService implements EmailService {
     logger.info({ to, name }, "[NO SMTP] Welcome email (skipped)");
   }
 
-  async sendWorkspaceInvite({ to, workspaceName, inviterName, url }: WorkspaceInviteArgs): Promise<void> {
+  async sendWorkspaceInvite({
+    to,
+    workspaceName,
+    inviterName,
+    url,
+  }: WorkspaceInviteArgs): Promise<void> {
     logger.warn(
       { to, workspaceName, inviterName, url },
       "[NO SMTP] Workspace invite — copy the url to accept the invitation",
@@ -162,10 +194,7 @@ function createEmailService(): EmailService {
         : undefined,
   });
 
-  logger.info(
-    { host: env.SMTP_HOST, port: env.SMTP_PORT, secure: env.SMTP_SECURE },
-    "SMTP transport ready",
-  );
+  logger.info("SMTP transport ready");
 
   return new SmtpEmailService(transport, env.SMTP_FROM);
 }

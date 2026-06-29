@@ -5,7 +5,7 @@ import {
   adminClient,
 } from "better-auth/client/plugins";
 import type { AuthInstance } from "@server/infrastructure/auth/auth";
-import { env } from "@/config/env";
+import { API_URL } from "@/config/env";
 
 /**
  * Better Auth client instance — the frontend's gateway to /api/auth/*.
@@ -33,7 +33,7 @@ import { env } from "@/config/env";
  * /admin dashboard.
  */
 export const authClient = createAuthClient({
-  baseURL: env.VITE_API_URL,
+  baseURL: API_URL,
   plugins: [
     inferAdditionalFields<AuthInstance>(),
     twoFactorClient(),

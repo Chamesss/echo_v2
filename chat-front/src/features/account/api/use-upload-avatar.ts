@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { authClient } from "@/lib/auth-client";
 import { ApiError, apiFetch } from "@/lib/api";
-import { env } from "@/config/env";
+import { API_URL } from "@/config/env";
 
 /**
  * Stable URL for an owned, private-bucket object via the server's signed-redirect
@@ -10,7 +10,7 @@ import { env } from "@/config/env";
  * freshly-signed GET. Mirrors how message attachments are served.
  */
 function fileProxyUrl(key: string): string {
-  return `${env.VITE_API_URL}/api/files?key=${encodeURIComponent(key)}`;
+  return `${API_URL}/api/files?key=${encodeURIComponent(key)}`;
 }
 
 interface PresignResponse {

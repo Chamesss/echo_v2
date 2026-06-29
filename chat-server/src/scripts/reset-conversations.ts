@@ -2,8 +2,8 @@
  * Reset all conversations + channels, keeping workspaces and members.
  *
  * Usage:
- *   pnpm db:reset-conversations --yes                 # every workspace
- *   pnpm db:reset-conversations --yes --workspace=<workspaceId>
+ *   bun run db:reset-conversations --yes                 # every workspace
+ *   bun run db:reset-conversations --yes --workspace=<workspaceId>
  *
  * For each tenant schema it TRUNCATEs the conversation tables — `attachments`,
  * `message_revisions`, `messages`, `channel_members`, `channels` (this wipes
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
       "Refusing to run without --yes.\n" +
         "This DELETES all channels, DMs, messages, attachments, and notifications.\n" +
         "Workspaces, members, users, and notification settings are kept.\n\n" +
-        "Run:  pnpm db:reset-conversations --yes  [--workspace=<workspaceId>]",
+        "Run:  bun run db:reset-conversations --yes  [--workspace=<workspaceId>]",
     );
     await pool.end();
     process.exit(1);

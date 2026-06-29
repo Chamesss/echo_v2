@@ -1,5 +1,5 @@
 import type { ClientFrame, RealtimeEvent, ServerFrame } from "@server/infrastructure/realtime/protocol";
-import { env } from "@/config/env";
+import { API_URL } from "@/config/env";
 
 export type RealtimeStatus = "connecting" | "open" | "closed";
 
@@ -42,7 +42,7 @@ export class WorkspaceRealtime {
     // handler also guards on socket identity.
     this.teardownSocket();
 
-    const base = env.VITE_API_URL.replace(/^http/, "ws"); // http→ws, https→wss
+    const base = API_URL.replace(/^http/, "ws"); // http→ws, https→wss
     const url = `${base}/ws?workspaceId=${encodeURIComponent(this.workspaceId)}`;
     this.emitStatus("connecting", false);
 

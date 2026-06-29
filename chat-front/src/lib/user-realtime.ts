@@ -1,5 +1,5 @@
 import type { UserEvent, UserClientFrame, UserServerFrame } from "@server/infrastructure/realtime/protocol";
-import { env } from "@/config/env";
+import { API_URL } from "@/config/env";
 
 export type UserRealtimeStatus = "connecting" | "open" | "closed";
 
@@ -39,7 +39,7 @@ export class UserRealtime {
     // never deliver events twice. Every handler below also guards on identity.
     this.teardownSocket();
 
-    const base = env.VITE_API_URL.replace(/^http/, "ws"); // http→ws, https→wss
+    const base = API_URL.replace(/^http/, "ws"); // http→ws, https→wss
     this.emitStatus("connecting", false);
 
     const ws = new WebSocket(`${base}/ws/user`);

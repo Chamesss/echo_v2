@@ -111,8 +111,11 @@ class ConfiguredS3Service implements S3Service {
       expiresIn: expiresInSeconds,
     });
     // The browser PUT must send exactly the headers that were signed.
-    const requiredHeaders: Record<string, string> = { "Content-Type": contentType };
-    if (contentDisposition) requiredHeaders["Content-Disposition"] = contentDisposition;
+    const requiredHeaders: Record<string, string> = {
+      "Content-Type": contentType,
+    };
+    if (contentDisposition)
+      requiredHeaders["Content-Disposition"] = contentDisposition;
     return {
       uploadUrl,
       publicUrl: this.publicUrlFor(key),
@@ -129,9 +132,13 @@ class ConfiguredS3Service implements S3Service {
     key: string,
     expiresInSeconds = DOWNLOAD_URL_TTL_SECONDS,
   ): Promise<string> {
-    return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {
-      expiresIn: expiresInSeconds,
-    });
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      {
+        expiresIn: expiresInSeconds,
+      },
+    );
   }
 
   async headObject(key: string): Promise<HeadObjectResult | null> {
@@ -146,7 +153,11 @@ class ConfiguredS3Service implements S3Service {
     } catch (err) {
       // Missing object (404/NotFound) → null so the caller rejects the send.
       const name = (err as { name?: string }).name;
-      if (name === "NotFound" || name === "NoSuchKey" || name === "NotFoundException") {
+      if (
+        name === "NotFound" ||
+        name === "NoSuchKey" ||
+        name === "NotFoundException"
+      ) {
         return null;
       }
       throw err;
@@ -205,10 +216,7 @@ function createS3Service(): S3Service {
   });
 
   const publicUrlBase = `https://${env.S3_BUCKET}.s3.${env.AWS_REGION}.amazonaws.com`;
-  logger.info(
-    { bucket: env.S3_BUCKET, region: env.AWS_REGION, publicUrlBase },
-    "S3 client ready",
-  );
+  logger.info("S3 client ready");
 
   return new ConfiguredS3Service(client, env.S3_BUCKET, publicUrlBase);
 }

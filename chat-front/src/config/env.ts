@@ -8,7 +8,11 @@ import { z } from 'zod';
  * instead of producing a vague runtime error inside a fetch call.
  */
 const schema = z.object({
-  VITE_API_URL: z.string().url(),
+  // Absolute base URL of the API + WebSocket server. OPTIONAL: in production the
+  // server serves the SPA, so they share an origin and this is left unset (we
+  // fall back to the current origin — see `API_URL`). In dev the front and
+  // server run on different ports, so `.env` sets it (e.g. http://localhost:4000).
+  VITE_API_URL: z.string().url().optional(),
   // Cloudflare Turnstile site key. When present, the auth forms render a
   // Turnstile widget and attach its token to sign-in/sign-up/reset requests.
   // Optional: leave unset to disable CAPTCHA in dev (mirrors the server, which
@@ -17,3 +21,13 @@ const schema = z.object({
 });
 
 export const env = schema.parse(import.meta.env);
+
+/**
+ * The resolved API/WebSocket base URL the whole app builds requests from.
+ *
+ * - Dev: `VITE_API_URL` points at the standalone server (cross-origin).
+ * - Prod: unset → same-origin (Express serves this SPA), so we use the current
+ *   origin. WebSocket URLs are derived from this via `http→ws` at the call site.
+ */
+export const API_URL: string =
+  env.VITE_API_URL ?? (typeof window !== "undefined" ? window.location.origin : "");

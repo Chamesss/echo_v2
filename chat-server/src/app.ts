@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -64,6 +67,11 @@ app.use("/api/files", filesRouter);
 
 registerModuleRoutes(app);
 
+// Serve the built React SPA (single-origin production deploy). Mounted AFTER the
+// API routes so it can't shadow them, and only when a build is present — in dev
+// the frontend runs on its own Vite origin and in tests there is no build.
+serveSpa(app);
+
 // Error handler MUST be last so it catches errors from every preceding layer.
 app.use(errorHandler);
 
@@ -79,4 +87,37 @@ function registerModuleRoutes(application: express.Express): void {
   // Attachment policy is user-scoped (workspace-agnostic); presign is mounted
   // on the channel router (needs the channel-membership context).
   application.use("/api/attachments", authenticate, attachmentsRouter);
+}
+
+/**
+ * Serve the compiled frontend (Vite `dist`) so one process serves the SPA, the
+ * REST API, and the WebSocket upgrade on a single origin.
+ *
+ * `FRONT_DIST_DIR` overrides the location (set in the Docker image); the default
+ * resolves the sibling `chat-front/dist` from this file. We no-op when there's no
+ * build — keeping `bun dev` (frontend on a separate Vite port) and the
+ * integration tests (which import `app` with no build) unaffected.
+ *
+ * Static assets are hashed and served directly; every other GET that asks for
+ * HTML falls back to `index.html` so React Router can resolve client-side routes
+ * (deep links / refresh). The fallback regex deliberately excludes the
+ * `/api`, `/health`, and `/ws` namespaces, so an unmatched `/api/*` still flows
+ * through to the JSON 404 in `errorHandler` instead of returning the SPA shell.
+ * (The WS upgrade is handled on the raw HTTP server in `server.ts`, independent
+ * of Express routing, so it is never affected by this anyway.)
+ */
+function serveSpa(application: express.Express): void {
+  const distDir =
+    process.env.FRONT_DIST_DIR ??
+    path.resolve(fileURLToPath(import.meta.url), "../../../chat-front/dist");
+  if (!existsSync(path.join(distDir, "index.html"))) return;
+
+  application.use(express.static(distDir));
+  application.get(
+    /^\/(?!api(?:\/|$)|health(?:\/|$)|ws(?:\/|$)).*/,
+    (req, res, next) => {
+      if (req.method !== "GET" || !req.accepts("html")) return next();
+      res.sendFile(path.join(distDir, "index.html"));
+    },
+  );
 }

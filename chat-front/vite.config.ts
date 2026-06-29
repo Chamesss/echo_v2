@@ -15,8 +15,8 @@ export default defineConfig({
     setupFiles: ["./src/test-setup.ts"],
     css: false,
   },
-  // Don't wipe the terminal on startup/reload. When `pnpm dev` runs the
-  // frontend and backend in one shared terminal (pnpm -r --parallel), Vite's
+  // Don't wipe the terminal on startup/reload. When `bun run dev` runs the
+  // frontend and backend in one shared terminal (concurrently), Vite's
   // default screen-clearing erases the server's interleaved log lines, making
   // it look like the backend produces no output. Keeping the screen lets both
   // streams coexist.

@@ -1,0 +1,72 @@
+# Render Blueprint — one Docker web service (Express SPA + REST + WebSockets on
+# Bun). The database is EXTERNAL (Neon), so no managed Postgres here. Secrets/URLs
+# marked `sync: false` are filled in the dashboard.
+#
+# DATABASE_URL MUST be Neon's DIRECT (non-pooled) connection string — the one
+# WITHOUT `-pooler` in the host, ending in `?sslmode=require`. The pooled string
+# (PgBouncer transaction mode) silently breaks LISTEN/NOTIFY (realtime) AND the
+# `search_path` startup option this app relies on.
+#
+# After the FIRST deploy:
+#   1. Set DATABASE_URL to your Neon direct string.
+#   2. Set BETTER_AUTH_URL + CORS_ORIGINS to the service's https URL (same value).
+#   3. Run migrations once (Render Shell or a one-off job):
+#        bun run --filter chat-server db:migrate
+#        bun run --filter chat-server db:migrate-tenants
+#
+# Railway: no blueprint needed — point a service at chat-server/Dockerfile with
+# the repo root as build context and set the same env vars.
+services:
+  - type: web
+    name: chat
+    runtime: docker
+    dockerfilePath: ./chat-server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Neon DIRECT (non-pooled) connection string, e.g.
+      #   postgresql://USER:PASS@ep-xxxx.REGION.aws.neon.tech/DBNAME?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      # Single origin: both must equal the deployed https URL of THIS service.
+      - key: BETTER_AUTH_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      # S3 (avatars + attachments)
+      - key: AWS_REGION
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      # SMTP (transactional email)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      # OAuth + CAPTCHA (optional)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+# No `databases:` block — the Postgres is hosted externally on Neon (set
+# DATABASE_URL above). Add one back only if you switch to Render's managed PG.
