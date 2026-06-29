@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { env } from "@/config/env";
+import { TURNSTILE_SITE_KEY } from "@/config/env";
 
 /**
  * Cloudflare Turnstile integration for the auth forms.
@@ -28,7 +28,7 @@ import { env } from "@/config/env";
  *                               because Turnstile tokens are single-use.
  */
 
-const SITE_KEY = env.VITE_TURNSTILE_SITE_KEY;
+const SITE_KEY = TURNSTILE_SITE_KEY;
 export const captchaEnabled = Boolean(SITE_KEY);
 
 // `render=explicit` keeps us in control of when/where the widget mounts instead

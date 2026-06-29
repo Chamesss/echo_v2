@@ -71,7 +71,11 @@ services:
         sync: false
       - key: GITHUB_CLIENT_SECRET
         sync: false
+      # Turnstile: set BOTH (secret verifies server-side; site key is the PUBLIC
+      # value injected into the SPA at runtime) or NEITHER. One alone breaks auth.
       - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_SITE_KEY
         sync: false
 # No `databases:` block — the Postgres is hosted externally on Neon (set
 # DATABASE_URL above). Add one back only if you switch to Render's managed PG.

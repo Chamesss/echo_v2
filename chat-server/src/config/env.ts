@@ -35,6 +35,12 @@ const schema = z.object({
   // sign-up / sign-in / password-reset on a valid token. Optional so an
   // unconfigured dev environment still boots — same pattern as Google OAuth.
   TURNSTILE_SECRET_KEY: z.string().optional(),
+  // PUBLIC Turnstile site key. Served to the SPA at runtime (injected into
+  // index.html by app.ts) so the widget renders without a rebuild — unlike the
+  // frontend's build-time VITE_TURNSTILE_SITE_KEY. Pair with the secret above:
+  // set BOTH or NEITHER, or email auth breaks (server requires a token the
+  // widget can't produce).
+  TURNSTILE_SITE_KEY: z.string().optional(),
   AUTH_DISABLE_SIGNUP: z
     .enum(["true", "false"])
     .default("false")

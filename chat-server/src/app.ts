@@ -1,10 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { corsOrigins } from "./config/env.js";
+import { corsOrigins, env } from "./config/env.js";
 import { requestId } from "./shared/middleware/request-id.js";
 import { authenticate } from "./shared/middleware/authenticate.js";
 import { errorHandler } from "./shared/errors/error-handler.js";
@@ -115,14 +115,30 @@ function serveSpa(application: express.Express): void {
   const distDir =
     process.env.FRONT_DIST_DIR ??
     path.resolve(fileURLToPath(import.meta.url), "../../../chat-front/dist");
-  if (!existsSync(path.join(distDir, "index.html"))) return;
+  const indexPath = path.join(distDir, "index.html");
+  if (!existsSync(indexPath)) return;
 
-  application.use(express.static(distDir));
+  // Inject RUNTIME public config into index.html. `VITE_*` vars are frozen at
+  // build time, but the deploy host's runtime env is not — so values only known
+  // at deploy (e.g. the Turnstile site key) reach the SPA without a rebuild. The
+  // client reads `window.__APP_CONFIG__` (see chat-front config/env.ts). Values
+  // here are PUBLIC by definition (they ship to the browser). `<` is escaped so
+  // a value can't break out of the <script>.
+  const runtimeConfig = { turnstileSiteKey: env.TURNSTILE_SITE_KEY ?? null };
+  const configScript = `<script>window.__APP_CONFIG__=${JSON.stringify(runtimeConfig).replace(
+    /</g,
+    "\\u003c",
+  )}</script>`;
+  const indexHtml = readFileSync(indexPath, "utf8").replace("</head>", `${configScript}</head>`);
+
+  // Serve hashed assets directly, but `index: false` so `/` flows through the
+  // HTML handler below (which injects config) instead of the raw file.
+  application.use(express.static(distDir, { index: false }));
   application.get(
     /^\/(?!api(?:\/|$)|health(?:\/|$)|ws(?:\/|$)).*/,
     (req, res, next) => {
       if (req.method !== "GET" || !req.accepts("html")) return next();
-      res.sendFile(path.join(distDir, "index.html"));
+      res.type("html").send(indexHtml);
     },
   );
 }

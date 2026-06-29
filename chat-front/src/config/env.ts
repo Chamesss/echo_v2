@@ -31,3 +31,27 @@ export const env = schema.parse(import.meta.env);
  */
 export const API_URL: string =
   env.VITE_API_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
+
+/**
+ * Runtime public config injected into index.html by the server (production,
+ * single-origin) — see `serveSpa` in chat-server/src/app.ts. Lets deploy-time
+ * values reach the SPA WITHOUT a rebuild, unlike build-time `VITE_*` vars.
+ */
+interface RuntimeConfig {
+  turnstileSiteKey?: string | null;
+}
+declare global {
+  interface Window {
+    __APP_CONFIG__?: RuntimeConfig;
+  }
+}
+const runtime: RuntimeConfig =
+  (typeof window !== "undefined" && window.__APP_CONFIG__) || {};
+
+/**
+ * Cloudflare Turnstile site key. Prefers the RUNTIME value injected by the
+ * server (so prod just needs `TURNSTILE_SITE_KEY` set on the host — no rebuild),
+ * and falls back to the build-time `VITE_TURNSTILE_SITE_KEY` for local dev.
+ */
+export const TURNSTILE_SITE_KEY: string | undefined =
+  runtime.turnstileSiteKey || env.VITE_TURNSTILE_SITE_KEY;

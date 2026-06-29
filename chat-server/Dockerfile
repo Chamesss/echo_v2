@@ -17,12 +17,9 @@ RUN bun install --frozen-lockfile
 
 # ── Build the frontend (emits chat-front/dist) ─────────────────────────────────
 FROM deps AS build
-# Vite bakes VITE_* vars at BUILD time. VITE_API_URL is intentionally left unset
-# (the SPA falls back to same-origin in prod). Pass VITE_TURNSTILE_SITE_KEY as a
-# build arg ONLY if you also set TURNSTILE_SECRET_KEY at runtime — enabling one
-# without the other locks users out of auth. Leave both unset to disable CAPTCHA.
-ARG VITE_TURNSTILE_SITE_KEY=""
-ENV VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY
+# No VITE_* build args needed: VITE_API_URL falls back to same-origin, and the
+# Turnstile site key is injected at RUNTIME from the server's TURNSTILE_SITE_KEY
+# env (see serveSpa in app.ts) — so CAPTCHA toggles via host env, no rebuild.
 COPY . .
 RUN bun run --filter chat-front build
 
