@@ -20,6 +20,11 @@ services:
   - type: web
     name: chat
     runtime: docker
+    # Free instance: 512 MB, no card, sleeps after 15 min idle (wakes on the next
+    # HTTP request OR WebSocket connect — the client auto-reconnects). WITHOUT this
+    # line Render defaults to the paid `starter` plan, which is why a Blueprint can
+    # look "not free". Bump to `starter` for always-on (no cold starts).
+    plan: free
     dockerfilePath: ./chat-server/Dockerfile
     dockerContext: .
     healthCheckPath: /health
@@ -27,7 +32,7 @@ services:
       - key: NODE_ENV
         value: production
       # Neon DIRECT (non-pooled) connection string, e.g.
-      #   postgresql://USER:PASS@ep-xxxx.REGION.aws.neon.tech/DBNAME?sslmode=require
+      #   postgresql://USER:PASS@ep-xxxx.REGION.aws.neon.tech/DBNAME?sslmode=
       - key: DATABASE_URL
         sync: false
       - key: BETTER_AUTH_SECRET
