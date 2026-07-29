@@ -2,7 +2,7 @@ name: CI
 
 # Typecheck + tests on every push to main and every PR. The backend integration
 # suite needs a real Postgres, provided here as a service container; the test
-# harness (test/global-setup.ts) creates the dedicated `chat_ci` database and
+# harness (test/global-setup.ts) creates the dedicated `echo_ci` database and
 # applies the control-plane migrations into it before any test runs.
 
 on:
@@ -31,7 +31,7 @@ jobs:
 
     env:
       # The suite derives everything else from this; global-setup CREATEs the db.
-      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_ci
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/echo_ci
 
     steps:
       - uses: actions/checkout@v4

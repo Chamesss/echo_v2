@@ -5,7 +5,7 @@
 #
 # NOTE: the server needs the control-plane migrations applied before it can
 # serve. After `db` is healthy, run them once against this database:
-#   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chat bun run --filter chat-server db:migrate
+#   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/echo bun run --filter echo-server db:migrate
 
 services:
   db:
@@ -13,11 +13,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: chat
+      POSTGRES_DB: echo
     ports:
       - "5432:5432"
     volumes:
-      - chat-db-data:/var/lib/postgresql/data
+      - echo-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -27,22 +27,22 @@ services:
   server:
     build:
       context: .
-      dockerfile: chat-server/Dockerfile
+      dockerfile: echo-server/Dockerfile
     depends_on:
       db:
         condition: service_healthy
     # Secrets (BETTER_AUTH_SECRET, S3, SMTP, OAuth, Turnstile, …) come from your
-    # LOCAL, git-ignored chat-server/.env — never hard-code them in this file,
-    # which IS committed. Copy chat-server/.env.example → chat-server/.env first.
+    # LOCAL, git-ignored echo-server/.env — never hard-code them in this file,
+    # which IS committed. Copy echo-server/.env.example → echo-server/.env first.
     env_file:
-      - ./chat-server/.env
+      - ./echo-server/.env
     # Infra values for the compose stack. `environment` overrides `env_file`, so
     # these win over whatever DATABASE_URL / URLs your .env has for normal dev.
     environment:
       NODE_ENV: production
       PORT: "4000"
       # Point at the `db` service in this compose network (not localhost).
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/chat
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/echo
       # Single origin: the server serves the SPA, so the browser origin IS :4000.
       BETTER_AUTH_URL: http://localhost:4000
       CORS_ORIGINS: http://localhost:4000
@@ -50,4 +50,4 @@ services:
       - "4000:4000"
 
 volumes:
-  chat-db-data:
+  echo-db-data:

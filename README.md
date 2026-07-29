@@ -1,4 +1,4 @@
-# Chat — a multi-workspace team chat app
+# Echo — a multi-workspace team chat app
 
 A Slack-style chat application: workspaces, public/private channels, DMs and group DMs,
 file attachments, live unread badges, read receipts, and a notification inbox.
@@ -29,8 +29,8 @@ frontend and backend, the WebSocket layer, and the main end-to-end flows.
 ### Repo layout
 
 ```
-chat/
-├── chat-server/          # API + WebSocket server (also serves the built SPA in prod)
+echo/
+├── echo-server/          # API + WebSocket server (also serves the built SPA in prod)
 │   ├── src/
 │   │   ├── app.ts        # Express app assembly (middleware order is load-bearing)
 │   │   ├── server.ts     # process entrypoint: HTTP + WS + graceful shutdown
@@ -46,7 +46,8 @@ chat/
 │   │   ├── modules/      # feature slices: routes → controller → service → dto
 │   │   └── shared/       # middleware, errors, logger, openapi registry
 │   └── drizzle/          # control-plane migrations
-├── chat-front/           # React SPA
+├── echo-front/           # React SPA
+│   ├── public/           # served at the root: favicon.svg (the site icon)
 │   └── src/
 │       ├── lib/          # apiFetch, authClient, realtime clients, query client
 │       ├── features/     # feature slices: api/ (hooks) + components/ + realtime/
@@ -61,11 +62,11 @@ chat/
 
 ### 2.1 One monorepo, one origin in production
 
-`chat-server` and `chat-front` are Bun workspaces in a single repo.
+`echo-server` and `echo-front` are Bun workspaces in a single repo.
 
 In **development** they run as two processes on two ports (SPA on `:3000`, API on `:4000`),
 so Vite's HMR works normally. In **production** the server serves the compiled SPA itself
-(`serveSpa()` in [app.ts](chat-server/src/app.ts)) — the browser origin *is* the API origin.
+(`serveSpa()` in [app.ts](echo-server/src/app.ts)) — the browser origin *is* the API origin.
 
 Why this matters: a single origin means the session cookie is same-site, there's no CORS
 preflight on every call, and the WebSocket upgrade goes to the same host. Cross-origin dev
@@ -79,7 +80,7 @@ shared at compile time. No server code ever ships in the browser bundle; these a
 
 ### 2.2 Better Auth owns identity — we don't roll our own
 
-All of authentication lives in [infrastructure/auth/auth.ts](chat-server/src/infrastructure/auth/auth.ts):
+All of authentication lives in [infrastructure/auth/auth.ts](echo-server/src/infrastructure/auth/auth.ts):
 one `betterAuth({...})` config mounted at `/api/auth/*`. It gives us, out of the box:
 
 - email + password, with a minimum length and **Have I Been Pwned** breach checking
@@ -94,7 +95,7 @@ one `betterAuth({...})` config mounted at `/api/auth/*`. It gives us, out of the
 
 Better Auth writes to *our* Postgres tables through its Drizzle adapter — `users`,
 `sessions`, `accounts`, `verifications`, `twoFactors` (mapped in
-[control/schema.ts](chat-server/src/infrastructure/database/control/schema.ts)). So identity
+[control/schema.ts](echo-server/src/infrastructure/database/control/schema.ts)). So identity
 data is not in a third-party service; it's in the same database as everything else and can be
 joined against.
 
@@ -120,17 +121,17 @@ Data is split into two planes:
 | **Control plane** | `public` schema, accessed via Drizzle | users, sessions, accounts, workspaces, memberships, invite tokens, notifications, preferences, `tenant_catalog`, auth audit log |
 | **Tenant plane** | one `tenant_<slug>` schema **per workspace**, accessed via raw SQL | channels, channel_members, messages, message_revisions, attachments |
 
-Creating a workspace runs [provisionWorkspace()](chat-server/src/infrastructure/provisioning/workspace.ts)
+Creating a workspace runs [provisionWorkspace()](echo-server/src/infrastructure/provisioning/workspace.ts)
 — a **single Postgres transaction** that inserts the workspace row, inserts the creator's
 admin membership, `CREATE SCHEMA`, runs
-[tenant/init.sql](chat-server/src/infrastructure/database/tenant/init.sql) inside it, and
+[tenant/init.sql](echo-server/src/infrastructure/database/tenant/init.sql) inside it, and
 registers it in `tenant_catalog`. Because DDL is transactional in Postgres, a failure at any
 step rolls back cleanly — no half-provisioned workspaces, no compensating cleanup jobs. (This
 is the key reason schema-per-tenant beat database-per-tenant here: `CREATE DATABASE` can't
 participate in a transaction.)
 
 Every tenant read/write goes through one function,
-[withTenantSchema()](chat-server/src/infrastructure/database/tenant/client.ts):
+[withTenantSchema()](echo-server/src/infrastructure/database/tenant/client.ts):
 
 ```ts
 await withTenantSchema(workspaceId, async (db) => {
@@ -226,7 +227,7 @@ message is still durable and every client heals on its next catch-up or reconnec
 
 One Node process only holds its own sockets. Behind a load balancer, an event created on
 instance A has to reach subscribers on instance B. Rather than add Redis, the
-[backplane](chat-server/src/infrastructure/realtime/backplane.ts) rides Postgres
+[backplane](echo-server/src/infrastructure/realtime/backplane.ts) rides Postgres
 `LISTEN`/`NOTIFY` — infrastructure we already run.
 
 - Publishing goes through the **pool** (`SELECT pg_notify($1, $2)`), so it never depends on
@@ -263,7 +264,7 @@ channel stream deliberately does *not* bump unread, or an open channel would dou
 
 ### 2.8 Files: private bucket, presigned upload, signed-redirect download
 
-Attachments and avatars live in a private S3 bucket under a `chat/` namespace. Two hops:
+Attachments and avatars live in a private S3 bucket under a `echo/` namespace. Two hops:
 
 1. **Upload** — the client asks for a presigned `PUT` (bound to the declared content-type and
    size, at a server-generated key scoped to `workspace/channel/user`), then uploads the bytes
@@ -276,7 +277,7 @@ Attachments and avatars live in a private S3 bucket under a `chat/` namespace. T
    to a freshly-signed, short-lived S3 GET. Stored/cached message rows therefore never expire,
    and the bucket is never public. That endpoint is unauthenticated by design (an `<img>` tag
    can't send a cross-origin cookie) — the namespaced, UUID-bearing key is the bearer token,
-   and the endpoint refuses to sign anything outside `chat/`.
+   and the endpoint refuses to sign anything outside `echo/`.
 
 Per-category size limits (image/video/audio/document/file) and the per-message count cap come
 from env, so a deploy can tune them without a code change.
@@ -287,7 +288,7 @@ There is no Redux/Zustand global store. Server state lives in React Query; UI st
 component state or small contexts (workspace, realtime client, page title, appearance).
 
 Each feature owns a `api/` folder of hooks (`use-messages`, `use-channels`, `use-invites`, …)
-built on one primitive, [apiFetch](chat-front/src/lib/api.ts), which adds four things:
+built on one primitive, [apiFetch](echo-front/src/lib/api.ts), which adds four things:
 base URL, `credentials: 'include'`, JSON serialization + typed error throwing, and a global
 `auth:unauthorized` event on any 401.
 
@@ -304,7 +305,7 @@ code-split via `lazyRoute`.
 ### 2.10 Configuration is validated at boot
 
 Both sides parse `process.env` / `import.meta.env` through a Zod schema at import time
-([server](chat-server/src/config/env.ts), [front](chat-front/src/config/env.ts)). A missing
+([server](echo-server/src/config/env.ts), [front](echo-front/src/config/env.ts)). A missing
 or malformed variable crashes at startup with a clear message instead of failing deep inside
 a request six hours later.
 
@@ -324,7 +325,7 @@ the Turnstile *site* key) are injected by the server into `index.html` as
 ### 3.1 Sign-up / sign-in
 
 The frontend never posts to auth endpoints by hand. It uses
-[authClient](chat-front/src/lib/auth-client.ts) — a Better Auth React client whose types are
+[authClient](echo-front/src/lib/auth-client.ts) — a Better Auth React client whose types are
 inferred from the server's own config via `inferAdditionalFields<AuthInstance>()`, so
 available endpoints, user fields and plugins are exactly what the server exposes.
 
@@ -380,7 +381,7 @@ providers.
 
 Three mechanisms keep the UI from showing a stale "logged in" state:
 
-1. **Focus refresh** — [useSessionFocusRefresh](chat-front/src/hooks/use-session-focus-refresh.ts),
+1. **Focus refresh** — [useSessionFocusRefresh](echo-front/src/hooks/use-session-focus-refresh.ts),
    mounted once in the root layout, calls the session atom's `refetch()` on
    `visibilitychange` / `focus`. A laptop that was closed for hours re-validates the moment
    you come back. (It uses `refetch`, not `authClient.getSession()`, because only `refetch`
@@ -419,7 +420,7 @@ so you always know you're not yourself.
 
 CORS **does not** protect WebSockets — a page on any origin can open a socket and the browser
 will attach your cookies. So the upgrade is checked explicitly in
-[realtime/server.ts](chat-server/src/infrastructure/realtime/server.ts):
+[realtime/server.ts](echo-server/src/infrastructure/realtime/server.ts):
 
 ```
 HTTP GET /ws?workspaceId=…   (Upgrade: websocket, Cookie: session)
@@ -433,7 +434,7 @@ HTTP GET /ws?workspaceId=…   (Upgrade: websocket, Cookie: session)
 server-side per event.
 
 The `ws` server is created with `noServer: true` and attached to the raw HTTP server's
-`upgrade` event in [server.ts](chat-server/src/server.ts) — it never passes through Express
+`upgrade` event in [server.ts](echo-server/src/server.ts) — it never passes through Express
 routing, which is why the SPA fallback can't shadow it.
 
 ### 4.2 Subscribing to channels
@@ -445,7 +446,7 @@ subset. Channels the user can't see are silently skipped. Authorization is never
 hub — the hub is pure plumbing.
 
 The wire contract for both sockets lives in one file,
-[realtime/protocol.ts](chat-server/src/infrastructure/realtime/protocol.ts), which the
+[realtime/protocol.ts](echo-server/src/infrastructure/realtime/protocol.ts), which the
 frontend imports as types. Client frames are only `subscribe` / `unsubscribe` / `ping` — there
 is no way to write data over the socket.
 
@@ -482,7 +483,7 @@ include it.
 
 These are deliberately separated.
 
-**[WorkspaceRealtime](chat-front/src/lib/realtime.ts)** (and its thinner sibling
+**[WorkspaceRealtime](echo-front/src/lib/realtime.ts)** (and its thinner sibling
 `UserRealtime`) only manages a connection:
 
 - opens `wss://…/ws?workspaceId=…` (cookie rides along automatically)
@@ -495,7 +496,7 @@ These are deliberately separated.
 
 It knows nothing about caches or message ordering.
 
-**[useChannelStream](chat-front/src/features/channels/realtime/use-channel-stream.ts)** owns
+**[useChannelStream](echo-front/src/features/channels/realtime/use-channel-stream.ts)** owns
 reconciliation — the protocol from §2.5:
 
 - seeds `lastClock` from the **cache's own high-water mark** (the highest `updatedSeq` already
@@ -509,7 +510,7 @@ reconciliation — the protocol from §2.5:
 `channel.read` receipts are handled separately and never consume the clock, so a read receipt
 can't trigger a false gap.
 
-**[NotificationsProvider](chat-front/src/features/notifications/realtime/notifications-provider.tsx)**
+**[NotificationsProvider](echo-front/src/features/notifications/realtime/notifications-provider.tsx)**
 does the same job for the awareness socket: folds `unread.bump` / `notification.created` into
 the badge and inbox caches, keeps a bounded `seen` set as an idempotency guard against replays,
 skips bumps for the channel you're actively viewing while the tab is visible, and re-fetches
@@ -520,7 +521,7 @@ the authoritative summary on reconnect.
 - **Heartbeat** — the server pings every client every 30s; a client that never ponged since
   the last round is terminated, freeing its hub slot. (Half-open TCP connections otherwise
   linger invisibly.)
-- **Graceful shutdown** — on `SIGINT`/`SIGTERM`, [server.ts](chat-server/src/server.ts) closes
+- **Graceful shutdown** — on `SIGINT`/`SIGTERM`, [server.ts](echo-server/src/server.ts) closes
   every live socket with a `1001 "going away"` frame (so clients disconnect cleanly and decide
   for themselves whether to reconnect), closes the WS server, closes the backplane's LISTEN
   client, stops the HTTP server, and drains the pg pool — so a redeploy doesn't leak Postgres
@@ -571,7 +572,7 @@ logged in with a different email (mismatch notice), logged in with the right ema
 
 ```
 1. POST …/channels/:id/attachments/presign { filename, contentType, size }
-     → { uploadUrl, key, requiredHeaders }         key = chat/workspaces/<ws>/channels/<ch>/<user>/<uuid>.<ext>
+     → { uploadUrl, key, requiredHeaders }         key = echo/workspaces/<ws>/channels/<ch>/<user>/<uuid>.<ext>
 2. PUT  <uploadUrl>  (browser → S3 directly, bytes never touch the API)
 3. POST …/channels/:id/messages { clientId, body, attachments:[{ key, filename }] }
      ├─ resolveAttachmentsForSend: ownership re-check + S3 HEAD (real type/size) + policy
@@ -609,7 +610,7 @@ renders "Former member". It's reversible — if they rejoin, the next read retur
 docker compose up db
 
 # 2. Env
-cp chat-server/.env.example chat-server/.env     # DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL, CORS_ORIGINS
+cp echo-server/.env.example echo-server/.env     # DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL, CORS_ORIGINS
                                                  # optional: SMTP, S3, OAuth, Turnstile
 
 # 3. Control-plane migrations
@@ -626,9 +627,9 @@ Useful scripts:
 ```bash
 bun run typecheck                                  # both packages
 bun run test                                       # both packages
-bun run --filter chat-server db:generate           # new control-plane migration
-bun run --filter chat-server db:migrate-tenants    # upgrade every tenant schema
-bun run --filter chat-server db:make-admin         # bootstrap an admin
+bun run --filter echo-server db:generate           # new control-plane migration
+bun run --filter echo-server db:migrate-tenants    # upgrade every tenant schema
+bun run --filter echo-server db:make-admin         # bootstrap an admin
 ```
 
 Full stack in one container (server serves the built SPA on `:4000`):
@@ -647,17 +648,17 @@ it can't drift from the implementation.
 
 | I want to understand… | Read |
 |---|---|
-| Middleware order, what's public vs. gated | [chat-server/src/app.ts](chat-server/src/app.ts) |
-| Everything about auth | [infrastructure/auth/auth.ts](chat-server/src/infrastructure/auth/auth.ts) |
-| The realtime wire contract | [infrastructure/realtime/protocol.ts](chat-server/src/infrastructure/realtime/protocol.ts) |
-| WS handshake + authorization | [infrastructure/realtime/server.ts](chat-server/src/infrastructure/realtime/server.ts) |
-| Socket registry + fan-out | [infrastructure/realtime/hub.ts](chat-server/src/infrastructure/realtime/hub.ts) |
-| Cross-instance delivery | [infrastructure/realtime/backplane.ts](chat-server/src/infrastructure/realtime/backplane.ts) |
-| Tenant isolation | [database/tenant/client.ts](chat-server/src/infrastructure/database/tenant/client.ts) + [tenant/init.sql](chat-server/src/infrastructure/database/tenant/init.sql) |
-| The sequence/idempotency engine | [modules/channels/messages.service.ts](chat-server/src/modules/channels/messages.service.ts) |
-| Client-side gap detection | [features/channels/realtime/use-channel-stream.ts](chat-front/src/features/channels/realtime/use-channel-stream.ts) |
-| Socket lifecycle on the client | [lib/realtime.ts](chat-front/src/lib/realtime.ts), [lib/user-realtime.ts](chat-front/src/lib/user-realtime.ts) |
-| The route tree | [chat-front/src/router.tsx](chat-front/src/router.tsx) |
+| Middleware order, what's public vs. gated | [echo-server/src/app.ts](echo-server/src/app.ts) |
+| Everything about auth | [infrastructure/auth/auth.ts](echo-server/src/infrastructure/auth/auth.ts) |
+| The realtime wire contract | [infrastructure/realtime/protocol.ts](echo-server/src/infrastructure/realtime/protocol.ts) |
+| WS handshake + authorization | [infrastructure/realtime/server.ts](echo-server/src/infrastructure/realtime/server.ts) |
+| Socket registry + fan-out | [infrastructure/realtime/hub.ts](echo-server/src/infrastructure/realtime/hub.ts) |
+| Cross-instance delivery | [infrastructure/realtime/backplane.ts](echo-server/src/infrastructure/realtime/backplane.ts) |
+| Tenant isolation | [database/tenant/client.ts](echo-server/src/infrastructure/database/tenant/client.ts) + [tenant/init.sql](echo-server/src/infrastructure/database/tenant/init.sql) |
+| The sequence/idempotency engine | [modules/channels/messages.service.ts](echo-server/src/modules/channels/messages.service.ts) |
+| Client-side gap detection | [features/channels/realtime/use-channel-stream.ts](echo-front/src/features/channels/realtime/use-channel-stream.ts) |
+| Socket lifecycle on the client | [lib/realtime.ts](echo-front/src/lib/realtime.ts), [lib/user-realtime.ts](echo-front/src/lib/user-realtime.ts) |
+| The route tree | [echo-front/src/router.tsx](echo-front/src/router.tsx) |
 | Feature status / roadmap | [docs/SPRINT-TRACKER.md](docs/SPRINT-TRACKER.md) |
 
 The source files carry long explanatory header comments — including the reasoning behind the

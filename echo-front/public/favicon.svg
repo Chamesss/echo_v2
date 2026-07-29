@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Echo">
+  <!--
+    Echo site icon: a blue message bubble.
+
+    Drawn on a 32×32 grid as ONE path (rounded body + tail) so it stays a single
+    crisp shape when the browser rasterizes it down to 16px in the tab strip.
+    Solid fill rather than a gradient for the same reason — gradients turn to
+    mud at favicon sizes. The blue is Tailwind's blue-600 (#2563eb), which holds
+    enough contrast against both light and dark browser chrome.
+  -->
+  <path fill="#2563eb" d="M8 5h16a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5h-10l-6 6v-6a5 5 0 0 1-5-5v-8a5 5 0 0 1 5-5z"/>
+  <circle cx="10.5" cy="14" r="2" fill="#ffffff"/>
+  <circle cx="16" cy="14" r="2" fill="#ffffff"/>
+  <circle cx="21.5" cy="14" r="2" fill="#ffffff"/>
+</svg>

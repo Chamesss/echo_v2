@@ -11,21 +11,21 @@
 #   1. Set DATABASE_URL to your Neon direct string.
 #   2. Set BETTER_AUTH_URL + CORS_ORIGINS to the service's https URL (same value).
 #   3. Run migrations once (Render Shell or a one-off job):
-#        bun run --filter chat-server db:migrate
-#        bun run --filter chat-server db:migrate-tenants
+#        bun run --filter echo-server db:migrate
+#        bun run --filter echo-server db:migrate-tenants
 #
-# Railway: no blueprint needed — point a service at chat-server/Dockerfile with
+# Railway: no blueprint needed — point a service at echo-server/Dockerfile with
 # the repo root as build context and set the same env vars.
 services:
   - type: web
-    name: chat
+    name: echo
     runtime: docker
     # Free instance: 512 MB, no card, sleeps after 15 min idle (wakes on the next
     # HTTP request OR WebSocket connect — the client auto-reconnects). WITHOUT this
     # line Render defaults to the paid `starter` plan, which is why a Blueprint can
     # look "not free". Bump to `starter` for always-on (no cold starts).
     plan: free
-    dockerfilePath: ./chat-server/Dockerfile
+    dockerfilePath: ./echo-server/Dockerfile
     dockerContext: .
     healthCheckPath: /health
     envVars:
