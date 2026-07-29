@@ -147,8 +147,14 @@ function ChannelMessages({ channel }: { channel: ChannelDTO | DirectMessageDTO }
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
+  // `flex-1` and `h-full` cover the two parents this renders under, and each is
+  // inert where the other applies. Below the channel header it's a flex item, so
+  // `flex-1` sizes it (a definite flex-basis wins over `height`). On the
+  // early-return path it IS the route root, sitting directly in the shell's
+  // `<main>` — a block box, where `flex-1` does nothing and only `h-full` gives
+  // it the height to center against.
   return (
-    <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+    <div className="flex h-full flex-1 items-center justify-center text-sm text-muted-foreground">
       {children}
     </div>
   );
