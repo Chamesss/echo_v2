@@ -33,6 +33,24 @@ export const presignAvatarBody = z.object({
 export type PresignAvatarBody = z.infer<typeof presignAvatarBody>;
 
 /**
+ * Body for POST /api/users/me/password — sets a FIRST password for an account
+ * that has none (social sign-in only), so there is deliberately no
+ * `currentPassword` field. Changing an existing password goes through Better
+ * Auth's own `/change-password`, which requires the current one.
+ *
+ * Bounds mirror `emailAndPassword.minPasswordLength/maxPasswordLength` in
+ * `infrastructure/auth/auth.ts` so the form, this DTO, and Better Auth agree.
+ */
+export const setPasswordBody = z.object({
+  newPassword: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be at most 128 characters"),
+});
+
+export type SetPasswordBody = z.infer<typeof setPasswordBody>;
+
+/**
  * Maps a MIME type to its canonical file extension.
  *
  * Used by `users.service.ts` to build the S3 key. Keeping the map here

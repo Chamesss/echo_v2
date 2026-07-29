@@ -1,6 +1,8 @@
+import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { signIn } from '@/lib/auth-client';
+import { paths } from '@/lib/paths';
 import { SOCIAL_PROVIDERS, type ProviderId } from '../social-providers';
 
 /**
@@ -18,10 +20,17 @@ import { SOCIAL_PROVIDERS, type ProviderId } from '../social-providers';
  * a toast and keep the rest of the auth UI usable.
  */
 export function SocialSignInButtons() {
+  const [params] = useSearchParams();
+  const inviteToken = params.get('invite');
+
   const handleClick = async (provider: ProviderId) => {
+    // On an invite, return from OAuth to the accept page (it auto-joins).
+    const callbackURL = `${window.location.origin}${
+      inviteToken ? paths.acceptInvite(inviteToken) : '/'
+    }`;
     const result = await signIn.social({
       provider,
-      callbackURL: `${window.location.origin}/`,
+      callbackURL,
       errorCallbackURL: `${window.location.origin}/login`,
     });
     if (result?.error) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileText, Loader2, X } from "lucide-react";
+import { Image } from "@/components/ui/image";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "../api/use-attachment-policy";
 
@@ -49,6 +50,26 @@ export function AttachmentPreviewTile({
   const src = objectUrl ?? url ?? null;
   const uploading = progress !== undefined && progress < 100 && !error;
 
+  // Also the fallback when an image tile has no usable src, so a dead URL
+  // degrades to the file card instead of an empty square.
+  const fileCard = (
+    <div className="flex h-14 items-center gap-2.5 p-2.5">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+        <FileText className="size-4" />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-xs font-medium text-foreground" title={filename}>
+          {filename}
+        </span>
+        <span
+          className={cn("block text-[11px]", error ? "text-destructive" : "text-muted-foreground")}
+        >
+          {error ?? (size !== undefined ? formatBytes(size) : "")}
+        </span>
+      </span>
+    </div>
+  );
+
   return (
     <div
       className={cn(
@@ -66,22 +87,17 @@ export function AttachmentPreviewTile({
         <X className="size-3" />
       </button>
 
-      {isImage && src ? (
-        <img src={src} alt={filename} title={filename} className="size-20 object-cover" />
+      {isImage ? (
+        <Image
+          src={src}
+          alt={filename}
+          title={filename}
+          priority
+          className="size-20 object-cover"
+          fallback={fileCard}
+        />
       ) : (
-        <div className="flex h-14 items-center gap-2.5 p-2.5">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-            <FileText className="size-4" />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-xs font-medium text-foreground" title={filename}>
-              {filename}
-            </span>
-            <span className={cn("block text-[11px]", error ? "text-destructive" : "text-muted-foreground")}>
-              {error ?? (size !== undefined ? formatBytes(size) : "")}
-            </span>
-          </span>
-        </div>
+        fileCard
       )}
 
       {uploading && (

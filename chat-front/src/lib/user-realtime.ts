@@ -1,3 +1,4 @@
+import { isPolicyClose } from "@server/infrastructure/realtime/protocol";
 import type { UserEvent, UserClientFrame, UserServerFrame } from "@server/infrastructure/realtime/protocol";
 import { API_URL } from "@/config/env";
 
@@ -66,10 +67,13 @@ export class UserRealtime {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (this.ws !== ws) return; // a socket we already replaced
       this.ws = null;
       this.emitStatus("closed", false);
+      // 44xx is the server rejecting us (origin/session/membership). Retrying
+      // can only reproduce it, so stay down until something remounts us.
+      if (isPolicyClose(e.code)) this.stopped = true;
       if (!this.stopped) this.scheduleReconnect();
     };
 
@@ -84,7 +88,16 @@ export class UserRealtime {
     const ws = this.ws;
     if (!ws) return;
     this.ws = null;
-    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    ws.onmessage = ws.onclose = ws.onerror = null;
+    if (ws.readyState === WebSocket.CONNECTING) {
+      // Closing mid-handshake makes the browser log "WebSocket is closed before
+      // the connection is established" — noisy on every StrictMode remount. Let
+      // the handshake finish, then close; the identity guards above keep this
+      // orphan from reaching any listener in the meantime.
+      ws.onopen = () => ws.close();
+      return;
+    }
+    ws.onopen = null;
     try {
       ws.close();
     } catch {

@@ -9,6 +9,7 @@ import { logger } from "../logger/logger.js";
 // they land (channels, messages, etc.).
 import "../../modules/workspaces/workspaces.openapi.js";
 import "../../modules/users/users.openapi.js";
+import "../../modules/preferences/preferences.openapi.js";
 
 // Register the session-cookie security scheme once so paths can reference it
 // via `security: [{ sessionCookie: [] }]`.

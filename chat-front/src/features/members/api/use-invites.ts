@@ -5,12 +5,16 @@ import { invitesKey } from "./keys";
 
 export type { PendingInvite };
 
-/** Admin: pending (unaccepted, unexpired) invites for the workspace. */
-export function useInvites(workspaceId: string) {
+/**
+ * Admin: pending (unaccepted, unexpired) invites for the workspace. The endpoint
+ * is admin-only, so callers pass `enabled: canManage` to avoid a 403 for members.
+ */
+export function useInvites(workspaceId: string, enabled = true) {
   return useQuery({
     queryKey: invitesKey(workspaceId),
     queryFn: () => apiFetch<{ invites: PendingInvite[] }>(`/api/workspaces/${workspaceId}/invites`),
     select: (d) => d.invites,
+    enabled,
   });
 }
 

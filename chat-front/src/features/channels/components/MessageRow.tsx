@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AttachmentList } from "@/features/attachments/components/AttachmentList";
@@ -22,11 +22,6 @@ export interface MessageRowProps {
   onDelete: (messageId: string) => void;
 }
 
-function initials(label: string): string {
-  const parts = label.trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}
-
 export function MessageRow({ message, isOwn, authorName, authorImage, onEdit, onDelete }: MessageRowProps) {
   const [editing, setEditing] = useState(false);
 
@@ -36,11 +31,16 @@ export function MessageRow({ message, isOwn, authorName, authorImage, onEdit, on
     isOwn && !message.deleted && !message.pending && !message.failed && !unavailable;
 
   return (
-    <div className={cn("group flex gap-3 text-sm", message.pending && "opacity-60")}>
-      <Avatar className="mt-0.5 h-8 w-8">
-        {authorImage && <AvatarImage src={authorImage} alt={authorName} />}
-        <AvatarFallback>{initials(authorName)}</AvatarFallback>
-      </Avatar>
+    // The negative inline margin lets the hover highlight bleed past the
+    // timeline's own padding, so it reads as a full-width row (like Slack)
+    // rather than a box floating inside the column.
+    <div
+      className={cn(
+        "group -mx-2 flex gap-3 rounded-md px-2 py-[var(--density-row-y)] text-sm transition-colors hover:bg-accent/40",
+        message.pending && "opacity-60",
+      )}
+    >
+      <UserAvatar name={authorName} image={authorImage} className="mt-0.5 h-8 w-8" />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">

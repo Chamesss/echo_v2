@@ -194,7 +194,11 @@ export function workspaceInviteTemplate({
           button below to accept. This invitation expires in 7 days.
         </p>
         ${ctaButton("Accept invitation", url)}
-        <p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">
+        <p style="margin:16px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">
+          New to Chat? No problem — you'll create your account in a moment, and
+          you'll join ${escape(workspaceName)} automatically once you do.
+        </p>
+        <p style="margin:16px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">
           If you weren't expecting this invitation, you can safely ignore this email.
         </p>
       `,

@@ -1,5 +1,5 @@
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 import { ApiError } from "@/lib/api";
 import { setLastWorkspaceId } from "@/lib/local-storage";
 import { useCreateWorkspace } from "../api/use-create-workspace";
+import { finalizeSlugInput, normalizeSlugInput } from "../utils/normalize-slug-input";
 import { createWorkspaceSchema, type CreateWorkspaceInput } from "../schemas";
 
 /**
@@ -24,6 +25,11 @@ import { createWorkspaceSchema, type CreateWorkspaceInput } from "../schemas";
  * Rendered by `routes/workspaces/create.tsx`. On success we remember the
  * new workspace as last-used (so a sign-out + sign-in cycle lands the user
  * here again) and navigate straight to its dashboard.
+ *
+ * The slug field normalizes on every keystroke via `normalizeSlugInput`, so
+ * typing or pasting "Acme Corp" yields "acme-corp" instead of a validation
+ * error. `createWorkspaceSchema` still runs on submit — it's the guard for what
+ * normalization can't silently repair (too short, doesn't start with a letter).
  *
  * 409 slug-taken responses become inline field errors so the user can edit
  * and resubmit without losing context; everything else surfaces as a toast.
@@ -76,11 +82,19 @@ export function CreateWorkspaceForm() {
                     autoCorrect="off"
                     spellCheck={false}
                     {...field}
+                    onChange={(event) =>
+                      field.onChange(normalizeSlugInput(event.target.value))
+                    }
+                    onBlur={() => {
+                      field.onChange(finalizeSlugInput(field.value));
+                      field.onBlur();
+                    }}
                   />
                 </div>
               </FormControl>
               <FormDescription>
-                Lowercase letters, numbers, and hyphens. You can't change this later.
+                Lowercase letters, numbers, and hyphens — spaces become hyphens. You
+                can't change this later.
               </FormDescription>
               <FormMessage />
             </FormItem>

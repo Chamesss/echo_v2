@@ -1,7 +1,8 @@
 import { PageContainer, PageSection } from "@/components/layout/page-container";
 import { ProfileForm } from "@/features/account/components/ProfileForm";
+import { AppearanceSection } from "@/features/appearance/components/AppearanceSection";
 import { ChangeEmailForm } from "@/features/account/components/ChangeEmailForm";
-import { ChangePasswordForm } from "@/features/account/components/ChangePasswordForm";
+import { PasswordSection } from "@/features/account/components/PasswordSection";
 import { ConnectedAccounts } from "@/features/account/components/ConnectedAccounts";
 import { TwoFactorSection } from "@/features/account/components/TwoFactorSection";
 import { SessionsCard } from "@/features/account/components/SessionsCard";
@@ -24,15 +25,19 @@ export default function AccountPage() {
         <ProfileForm />
       </PageSection>
 
+      <PageSection
+        title="Appearance"
+        description="Personal to you — these settings follow you into every workspace and onto every device you sign in from."
+      >
+        <AppearanceSection />
+      </PageSection>
+
       <PageSection title="Email" description="Used for sign-in and account recovery.">
         <ChangeEmailForm />
       </PageSection>
 
-      <PageSection
-        title="Password"
-        description="Use at least 8 characters. Other devices are signed out after a password change."
-      >
-        <ChangePasswordForm />
+      <PageSection title="Password" description="Use at least 8 characters.">
+        <PasswordSection />
       </PageSection>
 
       <PageSection

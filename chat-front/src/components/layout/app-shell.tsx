@@ -16,6 +16,7 @@ import { useCurrentWorkspace } from "@/features/workspaces/context/workspace-con
 import { ChannelList } from "@/features/channels/components/ChannelList";
 import { DmList } from "@/features/channels/components/DmList";
 import { clearLastWorkspaceId } from "@/lib/local-storage";
+import { clearCachedPreferences } from "@/features/appearance/storage";
 import { paths } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,9 @@ export function AppShell() {
     signOut(undefined, {
       onSuccess: () => {
         clearLastWorkspaceId();
+        // Drop the cached theme too, so the next person on this browser gets
+        // the default rather than inheriting this user's appearance.
+        clearCachedPreferences();
         toast.success("Signed out");
         navigate(paths.login);
       },
@@ -69,14 +73,14 @@ export function AppShell() {
 
   const sidebar = (
     <>
-      <div className="flex h-16 shrink-0 items-center border-b border-border">
+      <div className="flex h-16 shrink-0 items-center border-b border-sidebar-border">
         <WorkspaceSwitcher />
       </div>
 
       <nav className="flex-1 space-y-3 overflow-y-auto p-2">
         <ChannelList />
         <DmList />
-        <div className="space-y-1 border-t border-border pt-2">
+        <div className="space-y-1 border-t border-sidebar-border pt-2">
           <SidebarLink
             icon={<Users />}
             label="Members"
@@ -104,9 +108,9 @@ export function AppShell() {
         </div>
       </nav>
 
-      <div className="shrink-0 border-t border-border p-3">
-        <div className="mb-2 px-1 text-xs text-muted-foreground">
-          <div className="truncate font-medium text-foreground">
+      <div className="shrink-0 border-t border-sidebar-border p-3">
+        <div className="mb-2 px-1 text-xs text-sidebar-muted-foreground">
+          <div className="truncate font-medium text-sidebar-foreground">
             {session?.user.name}
           </div>
           <div className="truncate">{session?.user.email}</div>
@@ -114,7 +118,7 @@ export function AppShell() {
         <Button
           variant="outline"
           size="sm"
-          className="w-full"
+          className="w-full border-sidebar-border bg-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           disabled={isPending}
           onClick={handleSignOut}
         >
@@ -130,8 +134,10 @@ export function AppShell() {
           optional impersonation banner); overflow-hidden keeps scrolling inside
           <main>, so the sidebar stays put and a tall page can't stretch it. */}
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-        {/* Desktop sidebar — static column. */}
-        <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-muted/20 lg:flex">
+        {/* Desktop sidebar — static column. Wears the theme's ABSOLUTE sidebar
+            palette, so it keeps its color in both light and dark mode, unlike
+            the main column which uses the (tinted) mode surfaces. */}
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
           {sidebar}
         </aside>
 
@@ -148,7 +154,7 @@ export function AppShell() {
         {/* Mobile off-canvas drawer. */}
         <aside
           className={cn(
-            "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-background shadow-xl transition-transform duration-200 lg:hidden",
+            "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-xl transition-transform duration-200 lg:hidden",
             mobileOpen ? "translate-x-0" : "-translate-x-full",
           )}
           aria-label="Sidebar"
@@ -157,7 +163,7 @@ export function AppShell() {
             type="button"
             onClick={() => setMobileOpen(false)}
             aria-label="Close menu"
-            className="absolute right-2 top-3 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            className="absolute right-2 top-3 rounded-md p-1.5 text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             <X className="size-4" />
           </button>
@@ -214,7 +220,7 @@ function SidebarLink({
   return (
     <Link
       to={to}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+      className="flex items-center gap-2 rounded-md px-2 py-[var(--density-row-y)] text-sm text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
     >
       <span className="[&_svg]:size-4">{icon}</span>
       <span>{label}</span>

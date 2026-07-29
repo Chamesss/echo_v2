@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { useSession } from "@/lib/auth-client";
 import { useDirectory } from "@/features/members/api/use-directory";
 import { useChannelReads, readersOf } from "../api/use-reads";
@@ -61,14 +62,12 @@ export function SeenBy({
 }
 
 function Avatar({ name, image }: { name: string; image: string | null }) {
-  if (image) {
-    return (
-      <img src={image} alt="" className="size-4 rounded-full object-cover ring-1 ring-background" />
-    );
-  }
   return (
-    <span className="flex size-4 items-center justify-center rounded-full bg-muted text-[8px] font-medium text-muted-foreground ring-1 ring-background">
-      {name.charAt(0).toUpperCase()}
-    </span>
+    <UserAvatar
+      name={name}
+      image={image}
+      maxInitials={1}
+      className="size-4 text-[8px] ring-1 ring-background"
+    />
   );
 }

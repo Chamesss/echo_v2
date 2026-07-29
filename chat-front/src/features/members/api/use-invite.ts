@@ -5,11 +5,16 @@ import { myWorkspacesKey } from "@/features/workspaces/api/use-my-workspaces";
 
 export type { InviteInfo };
 
-/** View an invite by its token (the accept-invite landing page). */
+/**
+ * View an invite by its token. PUBLIC endpoint — works for a logged-out invitee
+ * (the accept-invite page + the invite-aware sign-up form both read it). No fetch
+ * when there's no token (e.g. a plain /register without ?invite=).
+ */
 export function useInvite(token: string) {
   return useQuery({
     queryKey: ["invite", token],
     queryFn: () => apiFetch<InviteInfo>(`/api/invites/${token}`),
+    enabled: token.length > 0,
     retry: false,
   });
 }

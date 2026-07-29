@@ -1,5 +1,5 @@
 import { Hash, Lock } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { useSession } from "@/lib/auth-client";
 import type { ChannelDTO } from "../api/use-channels";
 import type { DirectMessageDTO } from "../api/use-dms";
@@ -75,10 +75,13 @@ function DmIntro({ channel }: { channel: DirectMessageDTO }) {
     <>
       <div className="mb-3 flex -space-x-2">
         {people.slice(0, 3).map((p) => (
-          <Avatar key={p.userId} className="size-10 ring-2 ring-background">
-            {p.image && <AvatarImage src={p.image} alt={p.name} />}
-            <AvatarFallback>{initials(p.name)}</AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            key={p.userId}
+            name={p.name}
+            image={p.image}
+            className="size-10 ring-2 ring-background"
+            priority
+          />
         ))}
       </div>
       <h2 className="text-xl font-bold text-foreground">{names}</h2>
@@ -94,11 +97,6 @@ function DmIntro({ channel }: { channel: DirectMessageDTO }) {
       </p>
     </>
   );
-}
-
-function initials(label: string): string {
-  const parts = label.trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
 function formatDate(iso: string): string {

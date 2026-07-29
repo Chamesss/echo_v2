@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";

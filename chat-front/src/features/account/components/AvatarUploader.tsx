@@ -1,11 +1,10 @@
 import { useRef } from "react";
 import { toast } from "sonner";
 import { Upload } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/auth-client";
 import { useUploadAvatar } from "../api/use-upload-avatar";
-import { bustCache } from "@/lib/utils";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB — keep in sync with backend AVATAR_MAX_SIZE_MB
@@ -51,26 +50,17 @@ export function AvatarUploader() {
     });
   };
 
-  const initials =
-    session?.user.name
-      ?.split(/\s+/)
-      .map((word) => word[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() ?? "?";
-
   return (
     <div className="flex items-center gap-4">
-      <Avatar className="h-20 w-20">
-        {session?.user.image && (
-          <AvatarImage
-            src={bustCache(session.user.image)}
-            alt={session.user.name}
-          />
-        )}
-        <AvatarFallback className="text-lg">{initials}</AvatarFallback>
-      </Avatar>
+      {/* Each upload lands on a new S3 key (`avatar-<timestamp>.jpg`), so the
+          URL already changes when the picture does — no cache-busting needed,
+          and adding it per-render is what made this avatar reload on focus. */}
+      <UserAvatar
+        name={session?.user.name ?? "?"}
+        image={session?.user.image}
+        className="h-20 w-20 text-lg"
+        priority
+      />
 
       <div className="space-y-2">
         <Button

@@ -11,11 +11,3 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-export const bustCache = (src: string | null): string => {
-  if (!src) return "";
-  const cacheBustedUrl = src.includes("?")
-    ? `${src}&timestamp=${Date.now()}`
-    : `${src}?timestamp=${Date.now()}`;
-  return cacheBustedUrl;
-};

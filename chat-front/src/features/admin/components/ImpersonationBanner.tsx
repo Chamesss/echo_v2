@@ -33,7 +33,7 @@ export function ImpersonationBanner() {
   };
 
   return (
-    <div className="flex shrink-0 items-center justify-center gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950">
+    <div className="flex shrink-0 items-center justify-center gap-3 bg-warning px-4 py-2 text-sm font-medium text-warning-foreground">
       <span>
         Impersonating <strong>{session.user.email}</strong>
       </span>
@@ -41,7 +41,7 @@ export function ImpersonationBanner() {
         type="button"
         onClick={handleStop}
         disabled={stopping}
-        className="rounded bg-amber-950/10 px-2 py-0.5 font-semibold underline-offset-2 hover:underline disabled:opacity-60"
+        className="rounded bg-warning-foreground/10 px-2 py-0.5 font-semibold underline-offset-2 hover:underline disabled:opacity-60"
       >
         {stopping ? 'Stopping…' : 'Stop impersonating'}
       </button>

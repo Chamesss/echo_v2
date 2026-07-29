@@ -38,14 +38,14 @@ export function ChannelList() {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between px-2 pb-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="text-xs font-semibold uppercase tracking-wide text-sidebar-muted-foreground">
           Channels
         </span>
         <button
           type="button"
           onClick={() => setCreating((v) => !v)}
           aria-label="New channel"
-          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          className="rounded p-1 text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Plus className="size-4" />
         </button>
@@ -69,9 +69,9 @@ export function ChannelList() {
       )}
 
       {isPending ? (
-        <p className="px-2 text-xs text-muted-foreground">Loading…</p>
+        <p className="px-2 text-xs text-sidebar-muted-foreground">Loading…</p>
       ) : channels.length === 0 ? (
-        <p className="px-2 text-xs text-muted-foreground">No channels yet.</p>
+        <p className="px-2 text-xs text-sidebar-muted-foreground">No channels yet.</p>
       ) : (
         channels.map((channel) => (
           <NavLink
@@ -79,10 +79,10 @@ export function ChannelList() {
             to={paths.workspaceChannel(workspace.id, channel.id)}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                "flex items-center gap-2 rounded-md px-2 py-[var(--density-row-y)] text-sm",
                 isActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  ? "bg-sidebar-active font-medium text-sidebar-active-foreground"
+                  : "text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
               )
             }
           >
@@ -96,7 +96,7 @@ export function ChannelList() {
                 <span className="truncate">{channel.name}</span>
                 {/* No badge for the channel you're viewing — it has no unread to you. */}
                 {channel.unread > 0 && !isActive && (
-                  <span className="ml-auto h-4 w-4 text-center rounded-full bg-foreground px-1 text-[10px] font-semibold text-background">
+                  <span className="ml-auto h-4 w-4 text-center rounded-full bg-sidebar-badge px-1 text-[10px] font-semibold text-sidebar-badge-foreground">
                     {channel.unread}
                   </span>
                 )}

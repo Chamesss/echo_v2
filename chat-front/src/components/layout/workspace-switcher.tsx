@@ -43,23 +43,25 @@ export function WorkspaceSwitcher() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex h-full w-full items-center gap-2 px-4 text-left hover:bg-accent/50"
+        className="flex h-full w-full items-center gap-2 px-4 text-left hover:bg-sidebar-accent"
       >
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-foreground">
+          <div className="truncate text-sm font-semibold text-sidebar-foreground">
             {current.name}
           </div>
-          <div className="truncate text-xs capitalize text-muted-foreground">
+          <div className="truncate text-xs capitalize text-sidebar-muted-foreground">
             {current.role}
           </div>
         </div>
-        <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+        <ChevronsUpDown className="size-4 shrink-0 text-sidebar-muted-foreground" />
       </button>
 
       {open && (
+        // Dropdown uses the MODE tokens, not the sidebar theme — it overlays
+        // the page and should read as page chrome.
         <div
           role="menu"
-          className="absolute left-2 right-2 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-card shadow-lg"
+          className="absolute left-2 right-2 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-card text-foreground shadow-lg"
         >
           <div className="max-h-64 overflow-y-auto py-1">
             {workspaces.map((w) => (
@@ -104,7 +106,7 @@ function SwitcherRow({
     >
       <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
       {unread > 0 && (
-        <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-semibold leading-4 text-white">
+        <span className="rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-4 text-destructive-foreground">
           {unread > 99 ? "99+" : unread}
         </span>
       )}

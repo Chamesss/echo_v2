@@ -1,6 +1,5 @@
 import type { Server } from "node:http";
 import type { IncomingMessage } from "node:http";
-import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { and, eq } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
@@ -11,28 +10,50 @@ import { corsOrigins } from "../../config/env.js";
 import { logger } from "../../shared/logger/logger.js";
 import { assertChannelAccess } from "../../modules/channels/channels.service.js";
 import { hub } from "./hub.js";
-import type { ClientFrame, ServerFrame, UserClientFrame, UserServerFrame } from "./protocol.js";
+import { WS_CLOSE } from "./protocol.js";
+import type {
+  ClientFrame,
+  ServerFrame,
+  UserClientFrame,
+  UserServerFrame,
+} from "./protocol.js";
 
-/** What `handleUpgrade` hands to the `connection` event after auth passes. */
+/** What the authorize step hands to the `connection` event after auth passes. */
 type ConnectionInfo =
   | { role: "workspace"; userId: string; workspaceId: string }
   | { role: "user"; userId: string };
+
+/** Authorization outcome; on failure, the WS close code sent to the client. */
+type AuthResult =
+  | { ok: true; info: ConnectionInfo }
+  | { ok: false; code: number; reason: string };
 
 /**
  * Attaches the realtime WebSocket server at `/ws`.
  *
  * The handshake is the security boundary (HTTP CORS does NOT cover WebSockets —
- * a cross-origin page can open a socket with the cookie attached). Every upgrade
- * must pass three checks before we accept it:
+ * a cross-origin page can open a socket with the cookie attached). Every socket
+ * must pass three checks before it is registered with the hub:
  *   1. Origin ∈ trusted origins        — blocks cross-site WebSocket hijacking
  *   2. a valid Better Auth session     — same `getSession` the REST layer uses
  *   3. membership of `?workspaceId=`    — the socket is scoped to one workspace
+ *
+ * Those checks run AFTER the handshake completes, not before it. Bun's `ws` shim
+ * requires the upgrade to finish synchronously inside the `upgrade` event — an
+ * `await` first lets Bun recycle the socket, and the later upgrade throws
+ * "upgrade requires a Request object". So we accept the socket, authorize it
+ * while buffering whatever it sends, and close it with a 44xx policy code if it
+ * fails. An unauthorized peer holds an inert socket for one auth round-trip: it
+ * receives nothing and never reaches the hub.
  *
  * After that the socket subscribes to channels (each re-checked for channel
  * membership) and receives events. Writes never come over the socket — they go
  * through REST, which owns durability + the gapless sequence.
  */
 const HEARTBEAT_MS = 30_000;
+
+/** Frames a socket may send before auth resolves, past which it is hung up on. */
+const PRE_AUTH_FRAME_LIMIT = 32;
 
 export function attachRealtimeServer(httpServer: Server): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -45,16 +66,52 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
     const url = new URL(req.url ?? "", "http://localhost");
     if (url.pathname !== "/ws" && url.pathname !== "/ws/user") return;
 
-    handleUpgrade(req, socket, head, url, wss).catch((err) => {
-      logger.warn({ err: (err as Error).message }, "ws upgrade failed");
-      rejectUpgrade(socket, 500, "Internal Server Error");
+    // Synchronous by necessity — see the note on this function for why auth
+    // cannot run before this call.
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      // Heartbeat bookkeeping starts now, so a slow auth can't be mistaken for a
+      // dead socket — and an auth that never settles still gets reaped.
+      alive.set(ws, true);
+      ws.on("pong", () => alive.set(ws, true));
+
+      // The client sends `subscribe` the instant `onopen` fires, which is now
+      // before we know who it is. Buffer those frames and replay them once the
+      // real handlers are attached; dropping them would silently lose the
+      // initial channel subscriptions until the next reconnect.
+      const pending: string[] = [];
+      const bufferFrame = (data: unknown): void => {
+        if (pending.length >= PRE_AUTH_FRAME_LIMIT) {
+          ws.close(WS_CLOSE.badRequest, "Too many frames before auth");
+          return;
+        }
+        pending.push(String(data));
+      };
+      ws.on("message", bufferFrame);
+
+      authorize(req, url)
+        .then((result) => {
+          ws.off("message", bufferFrame);
+          if (ws.readyState !== ws.OPEN) return; // client gave up mid-auth
+          if (!result.ok) {
+            ws.close(result.code, result.reason);
+            return;
+          }
+          // Synchronous: hub registration + the real `message` handler are in
+          // place before the buffered frames are replayed below.
+          wss.emit("connection", ws, result.info);
+          for (const raw of pending) ws.emit("message", raw);
+        })
+        .catch((err) => {
+          logger.warn({ err: (err as Error).message }, "ws auth failed");
+          ws.off("message", bufferFrame);
+          // 1011 is transient, so the client keeps its reconnect backoff.
+          if (ws.readyState === ws.OPEN)
+            ws.close(1011, "Internal Server Error");
+        });
     });
   });
 
   wss.on("connection", (ws: WebSocket, info: ConnectionInfo) => {
-    alive.set(ws, true);
-    ws.on("pong", () => alive.set(ws, true));
-
     if (info.role === "user") {
       hub.addUserSocket(ws, { userId: info.userId });
       ws.on("message", (data) => void onUserMessage(ws, data.toString()));
@@ -87,17 +144,15 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
   return wss;
 }
 
-async function handleUpgrade(
-  req: IncomingMessage,
-  socket: Duplex,
-  head: Buffer,
-  url: URL,
-  wss: WebSocketServer,
-): Promise<void> {
+/**
+ * Decides whether an already-upgraded socket may join, and as what. Pure: it
+ * touches no socket, so the caller owns every close.
+ */
+async function authorize(req: IncomingMessage, url: URL): Promise<AuthResult> {
   // 1. Origin allow-list (WS is not protected by CORS).
   const origin = req.headers.origin;
   if (!origin || !corsOrigins.includes(origin)) {
-    return rejectUpgrade(socket, 403, "Forbidden Origin");
+    return { ok: false, code: WS_CLOSE.forbidden, reason: "Forbidden origin" };
   }
 
   // 2. Authenticated session.
@@ -105,35 +160,46 @@ async function handleUpgrade(
     headers: fromNodeHeaders(req.headers),
     query: { disableCookieCache: true },
   });
-  if (!session?.user) return rejectUpgrade(socket, 401, "Unauthorized");
+  if (!session?.user)
+    return { ok: false, code: WS_CLOSE.unauthorized, reason: "Unauthorized" };
 
   // 2b. The awareness socket is user-scoped, not workspace-scoped: a valid
   // session is enough (membership is enforced per-event when the server decides
   // who to notify). No workspaceId, no channel subscriptions.
   if (url.pathname === "/ws/user") {
-    return wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, { role: "user", userId: session.user.id } satisfies ConnectionInfo);
-    });
+    return { ok: true, info: { role: "user", userId: session.user.id } };
   }
 
   // 3. Workspace membership (the workspace socket is workspace-scoped).
   const workspaceId = url.searchParams.get("workspaceId");
-  if (!workspaceId) return rejectUpgrade(socket, 400, "Missing workspaceId");
+  if (!workspaceId)
+    return {
+      ok: false,
+      code: WS_CLOSE.badRequest,
+      reason: "Missing workspaceId",
+    };
 
   const [member] = await controlDb
     .select({ userId: memberships.userId })
     .from(memberships)
-    .where(and(eq(memberships.userId, session.user.id), eq(memberships.workspaceId, workspaceId)))
+    .where(
+      and(
+        eq(memberships.userId, session.user.id),
+        eq(memberships.workspaceId, workspaceId),
+      ),
+    )
     .limit(1);
-  if (!member) return rejectUpgrade(socket, 403, "Not a workspace member");
+  if (!member)
+    return {
+      ok: false,
+      code: WS_CLOSE.forbidden,
+      reason: "Not a workspace member",
+    };
 
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit("connection", ws, {
-      role: "workspace",
-      userId: session.user.id,
-      workspaceId,
-    } satisfies ConnectionInfo);
-  });
+  return {
+    ok: true,
+    info: { role: "workspace", userId: session.user.id, workspaceId },
+  };
 }
 
 async function onUserMessage(ws: WebSocket, raw: string): Promise<void> {
@@ -194,9 +260,4 @@ function send(ws: WebSocket, frame: ServerFrame): void {
 
 function sendUser(ws: WebSocket, frame: UserServerFrame): void {
   if (ws.readyState === 1) ws.send(JSON.stringify(frame));
-}
-
-function rejectUpgrade(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
 }

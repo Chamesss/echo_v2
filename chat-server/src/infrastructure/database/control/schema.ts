@@ -308,6 +308,31 @@ export const notificationSettings = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.workspaceId] })],
 );
 
+/**
+ * Per-user UI preferences (appearance mode, sidebar theme, density…).
+ *
+ * User-global, NOT per-workspace — the choice follows the person across every
+ * workspace and device, which is why this lives in the control plane keyed by
+ * `userId` alone. A missing row means "all defaults", the same convention as
+ * `notificationSettings` above; the client never has to seed anything.
+ *
+ * The payload is a single `jsonb` blob rather than a column per preference so
+ * adding a preference is a schema change in `preferences.dto.ts` and nothing
+ * else — no migration, no deploy ordering to think about. The shape is owned
+ * and versioned by that zod schema; see `preferences.service.ts` for the
+ * lenient-read / partial-merge-write rules that keep mixed client versions
+ * from clobbering each other during a rolling deploy.
+ */
+export const userPreferences = pgTable("user_preferences", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  preferences: jsonb("preferences").notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // ─── Inferred types ───────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -326,3 +351,5 @@ export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
 export type NotificationSetting = typeof notificationSettings.$inferSelect;
 export type NewNotificationSetting = typeof notificationSettings.$inferInsert;
+export type UserPreference = typeof userPreferences.$inferSelect;
+export type NewUserPreference = typeof userPreferences.$inferInsert;

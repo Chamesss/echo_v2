@@ -1,5 +1,5 @@
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { toast } from "sonner";
 import { Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,16 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { ApiError } from "@/lib/api";
-import { useCreateInvite, useInvites } from "../api/use-invites";
+import { useCreateInvite } from "../api/use-invites";
 import { inviteSchema, type InviteInput } from "../schemas";
 
 /**
- * Admin-only invitations panel: invite someone by email (sends a tokenized
- * accept link), plus the list of still-pending invites. The raw token never
- * reaches the client — delivery is by email only.
+ * Admin-only invite form: invite someone by email (sends a tokenized accept
+ * link). The raw token never reaches the client — delivery is by email only.
+ * Still-pending invites are shown in the member roster as "Invited" rows.
  */
 export function InvitePanel({ workspaceId }: { workspaceId: string }) {
   const createInvite = useCreateInvite(workspaceId);
-  const { data: invites } = useInvites(workspaceId);
 
   const form = useForm<InviteInput>({
     resolver: zodResolver(inviteSchema),
@@ -89,27 +88,6 @@ export function InvitePanel({ workspaceId }: { workspaceId: string }) {
           </Button>
         </form>
       </Form>
-
-      <div>
-        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Pending invitations
-        </h3>
-        {!invites || invites.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No pending invitations.</p>
-        ) : (
-          <ul className="divide-y divide-border rounded-md border border-border">
-            {invites.map((inv) => (
-              <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                <span className="min-w-0 truncate text-foreground">{inv.email}</span>
-                <span className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
-                  <span className="capitalize">{inv.role}</span>
-                  <span>expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
     </div>
   );
 }

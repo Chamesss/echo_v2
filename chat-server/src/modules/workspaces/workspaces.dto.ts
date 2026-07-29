@@ -14,11 +14,12 @@ import { z } from 'zod';
 export const createWorkspaceBody = z.object({
   slug: z
     .string()
+    .trim()
     .min(3)
     .max(40)
     .regex(
       /^[a-z][a-z0-9-]*$/,
-      'Slug must be lowercase alphanumeric with hyphens, starting with a letter',
+      'Slug must be lowercase alphanumeric with hyphens, no spaces, starting with a letter',
     ),
 });
 

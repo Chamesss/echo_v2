@@ -1,0 +1,237 @@
+/**
+ * Themes — full-app color, layered on top of light/dark mode.
+ *
+ * The app has two orthogonal appearance axes:
+ *
+ *   MODE   (`.dark` on <html>)          → index.css. Decides whether surfaces
+ *                                         are light or dark, and owns every
+ *                                         TEXT token.
+ *   THEME  (`data-theme` on <html>)     → this file. Decides the hue: tints the
+ *                                         app surfaces and supplies the accent,
+ *                                         plus the absolute sidebar palette.
+ *
+ * Both combine: Aubergine + Light and Aubergine + Dark are both valid.
+ *
+ * ── How a theme is built ────────────────────────────────────────────────────
+ *
+ * A theme declares three seeds and a sidebar palette. Everything else is
+ * DERIVED with `color-mix`, which is what keeps this file small enough to
+ * review and safe enough to extend:
+ *
+ *   --theme-tint     the hue mixed into app surfaces. ALWAYS a dark, saturated
+ *                    color — mixing it into white stays light, and into near-
+ *                    black stays dark, so a tint can never invert a surface.
+ *   --theme-accent   primary buttons, focus rings, links, active states.
+ *   --theme-accent-foreground   text on top of the accent.
+ *
+ * Crucially, themes do NOT override `--foreground`, `--muted-foreground`, or
+ * the other text tokens: those stay on the neutral mode palette. Since the tint
+ * percentages are capped (see the bounds test in themes.test.ts), a themed
+ * surface can only drift a few percent from its neutral equivalent, so the
+ * neutral palette's contrast ratios carry over. That is the property that lets
+ * us add a theme without re-auditing every component.
+ *
+ * The sidebar palette stays ABSOLUTE (literal hex, contrast-tested per pair)
+ * because the sidebar is a solid block of color where text sits directly on the
+ * theme — it has no neutral fallback to inherit safety from.
+ *
+ * TO ADD A THEME: copy a block below, add an entry to
+ * `features/appearance/themes.ts`, and add the id to `THEME_IDS` in the
+ * server's `preferences.dto.ts`. `themes.test.ts` fails until all three agree
+ * and the contrast + tint bounds hold.
+ */
+
+/* ── default — no tint; follows the mode layer exactly ───────────────────── */
+:root[data-theme="default"] {
+  --sidebar: var(--muted);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-muted-foreground: var(--muted-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-active: var(--primary);
+  --sidebar-active-foreground: var(--primary-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-badge: var(--destructive);
+  --sidebar-badge-foreground: var(--destructive-foreground);
+  --sidebar-ring: var(--ring);
+}
+
+/* ── Derived app surfaces ────────────────────────────────────────────────────
+ *
+ * Written once and applied to every theme that sets `--theme-tint`, so the
+ * tint ratios can't drift between themes. `:not([data-theme="default"])`
+ * keeps the untinted default out of it.
+ *
+ * Percentages rise with how "raised" a surface is, so the depth order
+ * (background → card → muted → accent → border) stays legible when tinted.
+ */
+:root[data-theme]:not([data-theme="default"]) {
+  --primary: var(--theme-accent);
+  --primary-foreground: var(--theme-accent-foreground);
+  --ring: var(--theme-accent);
+
+  --background: color-mix(in oklab, var(--theme-tint) 3%, oklch(1 0 0));
+  --card: color-mix(in oklab, var(--theme-tint) 1.5%, oklch(1 0 0));
+  --popover: color-mix(in oklab, var(--theme-tint) 1.5%, oklch(1 0 0));
+  --muted: color-mix(in oklab, var(--theme-tint) 7%, oklch(1 0 0));
+  --secondary: color-mix(in oklab, var(--theme-tint) 7%, oklch(1 0 0));
+  --accent: color-mix(in oklab, var(--theme-tint) 9%, oklch(1 0 0));
+  --border: color-mix(in oklab, var(--theme-tint) 13%, oklch(1 0 0));
+  --input: color-mix(in oklab, var(--theme-tint) 13%, oklch(1 0 0));
+}
+
+/* Dark mode tolerates (and needs) a stronger tint to read as themed at all. */
+:root[data-theme]:not([data-theme="default"]).dark {
+  --background: color-mix(in oklab, var(--theme-tint) 14%, oklch(0.145 0 0));
+  --card: color-mix(in oklab, var(--theme-tint) 18%, oklch(0.145 0 0));
+  --popover: color-mix(in oklab, var(--theme-tint) 18%, oklch(0.145 0 0));
+  --muted: color-mix(in oklab, var(--theme-tint) 22%, oklch(0.145 0 0));
+  --secondary: color-mix(in oklab, var(--theme-tint) 22%, oklch(0.145 0 0));
+  --accent: color-mix(in oklab, var(--theme-tint) 26%, oklch(0.145 0 0));
+  /* Mixed into a SOLID neutral, not the base layer's translucent white: mixing
+     into a translucent color also mixes the alpha, which would leave themed
+     borders at ~37% opacity while the default theme sits at 10% — visibly
+     inconsistent and hard to reason about. A solid mid-dark border reads
+     clearly against the tinted surfaces above. */
+  --border: color-mix(in oklab, var(--theme-tint) 28%, oklch(0.28 0 0));
+  --input: color-mix(in oklab, var(--theme-tint) 28%, oklch(0.32 0 0));
+}
+
+/* ── aubergine — the Slack classic ───────────────────────────────────────── */
+:root[data-theme="aubergine"] {
+  --theme-tint: #3f0e40;
+  --theme-accent: #1164a3;
+  --theme-accent-foreground: #ffffff;
+
+  --sidebar: #3f0e40;
+  --sidebar-foreground: #ffffff;
+  --sidebar-muted-foreground: #bcabbc;
+  --sidebar-accent: #350d36;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-active: #1164a3;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #522653;
+  --sidebar-badge: #cd2553;
+  --sidebar-badge-foreground: #ffffff;
+  --sidebar-ring: #ffffff;
+}
+
+/* ── ochre — warm brown ──────────────────────────────────────────────────── */
+:root[data-theme="ochre"] {
+  --theme-tint: #4b2e19;
+  --theme-accent: #b45309;
+  --theme-accent-foreground: #ffffff;
+
+  --sidebar: #4b2e19;
+  --sidebar-foreground: #ffffff;
+  --sidebar-muted-foreground: #d7bfa6;
+  --sidebar-accent: #3a2413;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-active: #b45309;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #6b4526;
+  --sidebar-badge: #cd2553;
+  --sidebar-badge-foreground: #ffffff;
+  --sidebar-ring: #ffffff;
+}
+
+/* ── eggplant — muted violet ─────────────────────────────────────────────── */
+:root[data-theme="eggplant"] {
+  --theme-tint: #4a3b5c;
+  --theme-accent: #7c5cbf;
+  --theme-accent-foreground: #ffffff;
+
+  --sidebar: #4a3b5c;
+  --sidebar-foreground: #ffffff;
+  --sidebar-muted-foreground: #c9bed8;
+  --sidebar-accent: #3d3049;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-active: #7c5cbf;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #5d4b72;
+  --sidebar-badge: #cd2553;
+  --sidebar-badge-foreground: #ffffff;
+  --sidebar-ring: #ffffff;
+}
+
+/* ── hoth — cool blue, light sidebar ─────────────────────────────────────── */
+/* The sidebar stays light even in dark mode; that's the point of an absolute
+   sidebar palette. The tint is the accent blue, not the near-white sidebar,
+   because a near-white tint would be invisible in light mode and would wash
+   out the surfaces in dark mode. */
+:root[data-theme="hoth"] {
+  --theme-tint: #1164a3;
+  --theme-accent: #1164a3;
+  --theme-accent-foreground: #ffffff;
+
+  --sidebar: #f8f9fb;
+  --sidebar-foreground: #1d1c1d;
+  --sidebar-muted-foreground: #616061;
+  --sidebar-accent: #e8eaf0;
+  --sidebar-accent-foreground: #1d1c1d;
+  --sidebar-active: #1164a3;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #dcdfe6;
+  --sidebar-badge: #cd2553;
+  --sidebar-badge-foreground: #ffffff;
+  --sidebar-ring: #1164a3;
+}
+
+/* ── nocturne — deep navy ────────────────────────────────────────────────── */
+:root[data-theme="nocturne"] {
+  --theme-tint: #12172b;
+  --theme-accent: #2563eb;
+  --theme-accent-foreground: #ffffff;
+
+  --sidebar: #12172b;
+  --sidebar-foreground: #ffffff;
+  --sidebar-muted-foreground: #a3adc9;
+  --sidebar-accent: #1d2440;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-active: #2563eb;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #262e4d;
+  --sidebar-badge: #cd2553;
+  --sidebar-badge-foreground: #ffffff;
+  --sidebar-ring: #ffffff;
+}
+
+/* ── banana — bright yellow sidebar ──────────────────────────────────────── */
+/* Tinted with the deep amber rather than the pale sidebar yellow, for the same
+   reason as hoth. */
+:root[data-theme="banana"] {
+  --theme-tint: #7a5c00;
+  --theme-accent: #7a5c00;
+  --theme-accent-foreground: #ffffff;
+
+  --sidebar: #fbe7a1;
+  --sidebar-foreground: #2a2100;
+  --sidebar-muted-foreground: #6b5a12;
+  --sidebar-accent: #f5dc85;
+  --sidebar-accent-foreground: #2a2100;
+  --sidebar-active: #7a5c00;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #e6cf7d;
+  --sidebar-badge: #cd2553;
+  --sidebar-badge-foreground: #ffffff;
+  --sidebar-ring: #2a2100;
+}
+
+/* ── terminal — green on black ───────────────────────────────────────────── */
+:root[data-theme="terminal"] {
+  --theme-tint: #1f7a34;
+  --theme-accent: #1f7a34;
+  --theme-accent-foreground: #ffffff;
+
+  --sidebar: #0b0f0b;
+  --sidebar-foreground: #d6ffd6;
+  --sidebar-muted-foreground: #74a874;
+  --sidebar-accent: #131a13;
+  --sidebar-accent-foreground: #d6ffd6;
+  --sidebar-active: #1f7a34;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #1c261c;
+  --sidebar-badge: #cd2553;
+  --sidebar-badge-foreground: #ffffff;
+  --sidebar-ring: #d6ffd6;
+}

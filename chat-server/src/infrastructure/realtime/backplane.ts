@@ -51,6 +51,27 @@ export class PgNotifyBackplane implements Backplane {
   private connecting: Promise<void> | null = null;
   private closed = false;
   private readonly handlers = new Map<string, Set<(event: unknown) => void>>();
+  /** Tail of the LISTEN/UNLISTEN queue — see `runExclusive`. */
+  private commandQueue: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Runs a statement on the dedicated LISTEN client, one at a time.
+   *
+   * `pg.Client` (unlike the pool) holds a single connection: calling `.query()`
+   * while another query is in flight is deprecated in pg 8 and removed in pg 9.
+   * We hit that constantly because LISTEN and UNLISTEN are driven by socket
+   * lifecycle, not by requests — a client disconnecting mid-subscribe fires
+   * UNLISTEN straight into an in-flight LISTEN. Chaining every command off the
+   * previous one's settlement keeps exactly one query on the wire.
+   *
+   * Failures don't poison the chain: the queue advances on rejection too, and
+   * each caller sees only its own error.
+   */
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.commandQueue.then(fn, fn);
+    this.commandQueue = result.catch(() => {});
+    return result;
+  }
 
   /** Lazily (re)connect the dedicated LISTEN client and re-arm all channels. */
   private async ensureClient(): Promise<pg.Client> {
@@ -116,7 +137,19 @@ export class PgNotifyBackplane implements Backplane {
     if (!SAFE_CHANNEL.test(channel)) {
       throw new Error(`Unsafe NOTIFY channel for LISTEN: ${channel}`);
     }
-    await this.client?.query(`LISTEN "${channel}"`);
+    // Re-read `this.client` inside the queued callback: by the time our turn
+    // comes the connection may have dropped and been replaced (or nulled by
+    // `onClientError`), and LISTENing on the dead one would silently do nothing.
+    await this.runExclusive(async () => {
+      await this.client?.query(`LISTEN "${channel}"`);
+    });
+  }
+
+  private async unlisten(channel: string): Promise<void> {
+    if (!SAFE_CHANNEL.test(channel)) return;
+    await this.runExclusive(async () => {
+      await this.client?.query(`UNLISTEN "${channel}"`);
+    });
   }
 
   async publish(channel: string, event: unknown): Promise<void> {
@@ -180,9 +213,7 @@ export class PgNotifyBackplane implements Backplane {
       current.delete(handler);
       if (current.size === 0) {
         this.handlers.delete(channel);
-        if (SAFE_CHANNEL.test(channel)) {
-          this.client?.query(`UNLISTEN "${channel}"`).catch(() => {});
-        }
+        this.unlisten(channel).catch(() => {});
       }
     };
   }

@@ -24,6 +24,20 @@ export const changePasswordSchema = z
     path: ["confirmPassword"],
   });
 
+/**
+ * Setting a FIRST password (social-only accounts). Same rules as above minus
+ * `currentPassword` — there isn't one to verify.
+ */
+export const setPasswordSchema = z
+  .object({
+    newPassword: z.string().min(8, "Password must be at least 8 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
 export const changeEmailSchema = z.object({
   newEmail: z.email("Enter a valid email"),
 });
@@ -57,6 +71,7 @@ export const deleteAccountSchema = z.object({
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type SetPasswordInput = z.infer<typeof setPasswordSchema>;
 export type ChangeEmailInput = z.infer<typeof changeEmailSchema>;
 export type EnableTwoFactorInput = z.infer<typeof enableTwoFactorSchema>;
 export type VerifyTotpInput = z.infer<typeof verifyTotpSchema>;

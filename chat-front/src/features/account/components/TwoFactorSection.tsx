@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { ShieldCheck, ShieldOff } from "lucide-react";
@@ -174,6 +174,9 @@ export function TwoFactorSection() {
             and scan this code. Then enter the 6-digit code below to confirm.
           </AlertDescription>
         </Alert>
+        {/* `bg-white` is deliberate and must NOT become a token: QR scanners
+            need a light quiet zone around the code, so this stays white even in
+            dark mode. */}
         <div className="flex justify-center rounded-md border border-border bg-white p-4">
           <QRCodeSVG value={setupData.totpURI} size={180} />
         </div>

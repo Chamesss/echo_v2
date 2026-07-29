@@ -100,7 +100,9 @@ export function MessageList({
     <div
       ref={containerRef}
       onScroll={onScroll}
-      className="flex-1 space-y-3 overflow-y-auto p-4"
+      // Row spacing is density-driven; `Compact` tightens the timeline without
+      // touching any other layout.
+      className="flex-1 space-y-[var(--density-gap)] overflow-y-auto p-4"
     >
       {hasMore ? (
         <div className="flex justify-center pb-1">

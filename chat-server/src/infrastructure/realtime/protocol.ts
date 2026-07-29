@@ -9,6 +9,26 @@
  * catch-up endpoint. The DB sequence is the source of truth; the socket never is.
  */
 
+/**
+ * Close codes for sockets the server rejects after the handshake. The handshake
+ * itself can't carry an HTTP status: authorization is async and the upgrade must
+ * complete synchronously, so a rejection is a close frame on an accepted socket.
+ * These are permanent for the session — clients must not retry on them.
+ */
+export const WS_CLOSE = {
+  /** Malformed request (e.g. no `workspaceId`) or an abusive pre-auth client. */
+  badRequest: 4400,
+  /** No valid session on the upgrade request. */
+  unauthorized: 4401,
+  /** Untrusted origin, or not a member of the requested workspace. */
+  forbidden: 4403,
+} as const;
+
+/** True when a close was a server policy rejection rather than a transient drop. */
+export function isPolicyClose(code: number): boolean {
+  return code >= 4400 && code < 4500;
+}
+
 /** A file attached to a message, as it appears on the wire. */
 export interface AttachmentWire {
   id: string;

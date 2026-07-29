@@ -230,6 +230,17 @@ export async function sendMessage(
        RETURNING ${MESSAGE_COLUMNS}`,
       [channelId, userId, input.body, input.clientId, seq],
     );
+    // Unread is `channels.last_seq - channel_members.last_read_seq`, so the bump
+    // above counts the author's own message against them. Advance their cursor in
+    // the same tx: "you have read what you just wrote" is an invariant, not
+    // something to leave to a best-effort mark-read from the client.
+    await db.query(
+      `UPDATE channel_members
+          SET last_read_seq = GREATEST(last_read_seq, $1)
+        WHERE channel_id = $2 AND user_id = $3`,
+      [seq, channelId, userId],
+    );
+
     const wire = toWire(rows[0]!);
     wire.attachments = await insertAttachments(db, wire.id, resolvedAttachments);
     return { message: wire, created: true };
@@ -499,9 +510,20 @@ export async function markRead(
 ): Promise<{ lastReadSeq: number }> {
   const lastReadSeq = await withTenantSchema(workspaceId, async (db) => {
     await assertChannelMember(db, channelId, userId);
+    // Clients mark read with a message seq, but unread is measured against
+    // `channels.last_seq` — which edits and deletes also bump without producing a
+    // new markable message. So when the submitted seq covers every non-deleted
+    // message the reader is caught up by definition: promote the cursor to the
+    // channel clock, or those ticks strand an unread nothing can ever clear.
     const { rows } = await db.query<{ last_read_seq: number }>(
       `UPDATE channel_members
-          SET last_read_seq = GREATEST(last_read_seq, $1)
+          SET last_read_seq = GREATEST(
+                last_read_seq,
+                CASE WHEN $1 >= COALESCE(
+                       (SELECT MAX(seq) FROM messages
+                         WHERE channel_id = $2 AND deleted = false), 0)
+                     THEN (SELECT last_seq FROM channels WHERE id = $2)
+                     ELSE $1 END)
         WHERE channel_id = $2 AND user_id = $3
         RETURNING last_read_seq`,
       [seq, channelId, userId],

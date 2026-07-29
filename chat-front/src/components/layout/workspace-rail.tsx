@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { LogOut, Plus } from "lucide-react";
+import { Image } from "@/components/ui/image";
 import { cn } from "@/lib/utils";
 import { paths } from "@/lib/paths";
 import { clearLastWorkspaceId } from "@/lib/local-storage";
+import { clearCachedPreferences } from "@/features/appearance/storage";
 import { useSession } from "@/lib/auth-client";
 import { useSignOut } from "@/features/auth/api/use-sign-out";
 import {
@@ -29,7 +31,7 @@ export function WorkspaceRail() {
   return (
     <nav
       aria-label="Workspaces"
-      className="flex w-16 shrink-0 flex-col items-center gap-2 border-r border-border bg-muted/40 py-3"
+      className="flex w-16 shrink-0 flex-col items-center gap-2 border-r border-sidebar-border bg-sidebar py-3 text-sidebar-foreground"
     >
       <div className="flex flex-1 flex-col items-center gap-2 overflow-y-auto">
         {workspaces.map((w) => (
@@ -39,7 +41,7 @@ export function WorkspaceRail() {
           to={paths.workspaceCreate}
           aria-label="Create workspace"
           title="Create workspace"
-          className="flex size-11 items-center justify-center rounded-2xl border border-dashed border-border text-muted-foreground transition hover:border-foreground hover:text-foreground"
+          className="flex size-11 items-center justify-center rounded-2xl border border-dashed border-sidebar-border text-sidebar-muted-foreground transition hover:border-sidebar-foreground hover:text-sidebar-foreground"
         >
           <Plus className="size-5" />
         </Link>
@@ -74,7 +76,7 @@ function RailWorkspace({
       {/* Active indicator pip on the rail's left edge (Slack-like). */}
       <span
         className={cn(
-          "absolute -left-3 w-1 rounded-r-full bg-foreground transition-all",
+          "absolute -left-3 w-1 rounded-r-full bg-sidebar-foreground transition-all",
           active ? "h-8" : "h-0 group-hover:h-4",
         )}
       />
@@ -82,14 +84,16 @@ function RailWorkspace({
         className={cn(
           "flex size-11 items-center justify-center text-sm font-semibold transition-all",
           active
-            ? "rounded-2xl bg-primary text-primary-foreground"
-            : "rounded-3xl bg-card text-foreground group-hover:rounded-2xl group-hover:bg-accent",
+            ? "rounded-2xl bg-sidebar-active text-sidebar-active-foreground"
+            : "rounded-3xl bg-sidebar-accent text-sidebar-foreground group-hover:rounded-2xl group-hover:bg-sidebar-accent",
         )}
       >
         {initials}
       </span>
       {unread > 0 && (
-        <span className="absolute right-0 top-0 flex w-3.5 h-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-muted/40">
+        // `ring-sidebar` punches the badge out of the rail background, so it
+        // reads as a separate chip on every theme.
+        <span className="absolute right-0 top-0 flex w-3.5 h-3.5 items-center justify-center rounded-full bg-sidebar-badge px-1 text-[10px] font-semibold leading-4 text-sidebar-badge-foreground ring-2 ring-sidebar">
           {unread > 99 ? "99+" : unread}
         </span>
       )}
@@ -121,6 +125,9 @@ function UserMenu() {
     signOut(undefined, {
       onSuccess: () => {
         clearLastWorkspaceId();
+        // Drop the cached theme too, so the next person on this browser gets
+        // the default rather than inheriting this user's appearance.
+        clearCachedPreferences();
         toast.success("Signed out");
         navigate(paths.login);
       },
@@ -137,23 +144,25 @@ function UserMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-card text-sm font-semibold text-foreground ring-1 ring-border hover:ring-foreground"
+        className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-sidebar-accent text-sm font-semibold text-sidebar-foreground ring-1 ring-sidebar-border hover:ring-sidebar-ring"
       >
-        {session?.user.image ? (
-          <img
-            src={session.user.image}
-            alt=""
-            className="size-full object-cover"
-          />
-        ) : (
-          initial
-        )}
+        {/* Image, not UserAvatar: the button already supplies the round shape
+            and the sidebar-specific ring/background the fallback letter sits on. */}
+        <Image
+          src={session?.user.image}
+          alt=""
+          priority
+          className="size-full object-cover"
+          fallback={initial}
+        />
       </button>
 
       {open && (
         <div
           role="menu"
-          className="absolute bottom-0 left-full z-50 ml-2 w-56 overflow-hidden rounded-md border border-border bg-card shadow-lg"
+          // The menu floats over the main column, so it uses the MODE tokens,
+          // not the sidebar theme — it reads as part of the page, not the rail.
+          className="absolute bottom-0 left-full z-50 ml-2 w-56 overflow-hidden rounded-md border border-border bg-card text-foreground shadow-lg"
         >
           <div className="border-b border-border px-3 py-2 text-xs">
             <div className="truncate font-medium text-foreground">

@@ -1,6 +1,7 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Link, useNavigate } from "react-router";
+import { zodResolver } from "@/lib/zod-resolver";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,8 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { paths } from "@/lib/paths";
+import { useInvite } from "@/features/members/api/use-invite";
 import { useSignUp } from "../api/use-sign-up";
 import { Captcha, useCaptcha } from "./Captcha";
 import { signUpSchema, type SignUpInput } from "../schemas";
@@ -26,6 +29,9 @@ import { SocialSignInButtons } from "./SocialSignInButtons";
  */
 export function SignUpForm() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const inviteToken = params.get("invite") ?? "";
+  const { data: invite } = useInvite(inviteToken);
   const { mutate, isPending } = useSignUp();
   const captcha = useCaptcha();
 
@@ -33,6 +39,12 @@ export function SignUpForm() {
     resolver: zodResolver(signUpSchema),
     defaultValues: { name: "", email: "", password: "" },
   });
+
+  // Coming from an invite → lock the email to the invited address so the account
+  // is guaranteed to match, then land back on the accept page (which auto-joins).
+  useEffect(() => {
+    if (invite?.email) form.setValue("email", invite.email);
+  }, [invite?.email, form]);
 
   const onSubmit = (values: SignUpInput) => {
     if (captcha.enabled && !captcha.token) {
@@ -44,7 +56,7 @@ export function SignUpForm() {
       {
         onSuccess: () => {
           toast.success("Account created");
-          navigate("/");
+          navigate(inviteToken ? paths.acceptInvite(inviteToken) : "/");
         },
         onError: (err) => {
           // Turnstile tokens are single-use — reset so the user can retry.
@@ -87,9 +99,17 @@ export function SignUpForm() {
                     type="email"
                     placeholder="you@example.com"
                     autoComplete="email"
+                    // Locked to the invited address on an invite sign-up.
+                    readOnly={Boolean(inviteToken)}
+                    aria-readonly={Boolean(inviteToken)}
                     {...field}
                   />
                 </FormControl>
+                {inviteToken && (
+                  <p className="text-xs text-muted-foreground">
+                    Using the email your invitation was sent to.
+                  </p>
+                )}
                 <FormMessage />
               </FormItem>
             )}
@@ -132,7 +152,7 @@ export function SignUpForm() {
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
         <Link
-          to="/login"
+          to={inviteToken ? `${paths.login}?invite=${encodeURIComponent(inviteToken)}` : paths.login}
           className="font-medium text-foreground underline-offset-2 hover:underline"
         >
           Sign in

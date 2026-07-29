@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 import { Bell } from "lucide-react";
 import type { NotificationWire } from "@server/infrastructure/realtime/protocol";
 import { paths } from "@/lib/paths";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import {
   useMarkRead,
@@ -63,11 +64,13 @@ export function NotificationBell() {
         aria-label="Notifications"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="relative rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        // The bell lives in the workspace rail, so it wears the SIDEBAR theme;
+        // the panel it opens (below) wears the mode tokens like other overlays.
+        className="relative rounded-md p-2 text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       >
         <Bell className="size-5" />
         {unseen > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-4 text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-sidebar-badge px-1 text-[10px] font-semibold leading-4 text-sidebar-badge-foreground">
             {unseen > 99 ? "99+" : unseen}
           </span>
         )}
@@ -112,7 +115,9 @@ export function NotificationBell() {
                       {relativeTime(n.createdAt)}
                     </span>
                   </span>
-                  {!n.readAt && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-red-500" />}
+                  {!n.readAt && (
+                    <span className="mt-1.5 size-2 shrink-0 rounded-full bg-destructive" />
+                  )}
                 </button>
               ))
             )}
@@ -124,14 +129,7 @@ export function NotificationBell() {
 }
 
 function Avatar({ name, image }: { name: string; image: string | null }) {
-  if (image) {
-    return <img src={image} alt="" className="size-7 shrink-0 rounded-full object-cover" />;
-  }
-  return (
-    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-      {name.charAt(0).toUpperCase()}
-    </span>
-  );
+  return <UserAvatar name={name} image={image} maxInitials={1} className="size-7 text-xs" />;
 }
 
 /** Compact relative time ("just now", "5m", "3h", "2d") with a date fallback. */

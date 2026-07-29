@@ -1,4 +1,5 @@
 import { createBrowserRouter, RouterProvider } from "react-router";
+import { LoadingScreen } from "@/components/loading-screen";
 import { RootLayout } from "@/components/layout/root-layout";
 import { WorkspaceLayout } from "@/components/layout/workspace-layout";
 import { RouteError } from "@/components/route-error";
@@ -28,6 +29,12 @@ const router = createBrowserRouter([
   {
     element: <RootLayout />,
     errorElement: <RouteError />,
+    // Every page is code-split, so on a cold load the router has to resolve the
+    // matched route's `lazy()` before it can render anything. Without a fallback
+    // it renders null for that beat (and warns); reuse the same spinner the auth
+    // guards show, so "fetching the page chunk" and "resolving the session" look
+    // like one continuous load instead of a blank flash between them.
+    HydrateFallback: LoadingScreen,
     children: [
       // ── Public / unauthenticated ──────────────────────────────────────────
       { path: "/login", lazy: lazyRoute(() => import("@/routes/auth/login")) },
@@ -40,6 +47,13 @@ const router = createBrowserRouter([
         path: "/reset-password",
         lazy: lazyRoute(() => import("@/routes/auth/reset-password")),
       },
+      // Invite acceptance is PUBLIC: a logged-out invitee must be able to view it
+      // and be routed into sign-up (carrying the token). The page itself handles
+      // the logged-in / logged-out / email-mismatch states + auto-accept.
+      {
+        path: "accept-invite/:token",
+        lazy: lazyRoute(() => import("@/routes/accept-invite")),
+      },
 
       // ── Authenticated app ─────────────────────────────────────────────────
       {
@@ -49,12 +63,6 @@ const router = createBrowserRouter([
           {
             path: "workspaces/create",
             lazy: lazyRoute(() => import("@/routes/workspaces/create")),
-          },
-          // Invite acceptance: authed but NOT inside WorkspaceLayout (the visitor
-          // isn't a member yet, so the membership-checked shell would bounce them).
-          {
-            path: "accept-invite/:token",
-            lazy: lazyRoute(() => import("@/routes/accept-invite")),
           },
 
           // ── Inside a workspace (sidebar shell) ──────────────────────────────

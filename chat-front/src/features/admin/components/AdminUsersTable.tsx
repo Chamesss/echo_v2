@@ -284,7 +284,7 @@ function Badge({
   const tones: Record<typeof tone, string> = {
     accent: "bg-foreground/10 text-foreground",
     muted: "bg-muted text-muted-foreground",
-    success: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    success: "bg-success/15 text-success",
     danger: "bg-destructive/15 text-destructive",
   };
   return (

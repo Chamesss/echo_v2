@@ -1,6 +1,7 @@
 import { useRef, type ReactNode } from 'react';
-import { Navigate } from 'react-router';
+import { Navigate, useSearchParams } from 'react-router';
 import { useSession } from '@/lib/auth-client';
+import { paths } from '@/lib/paths';
 import { LoadingScreen } from '@/components/loading-screen';
 
 /**
@@ -14,6 +15,8 @@ import { LoadingScreen } from '@/components/loading-screen';
  */
 export function RedirectIfAuthed({ children }: { children: ReactNode }) {
   const { data: session, isPending } = useSession();
+  const [params] = useSearchParams();
+  const inviteToken = params.get('invite');
 
   // better-auth's `useSession` flips `isPending` back to true on every
   // background refetch while there's still no session (its refetch sets
@@ -27,7 +30,11 @@ export function RedirectIfAuthed({ children }: { children: ReactNode }) {
   if (!isPending) everResolved.current = true;
 
   if (isPending && !everResolved.current) return <LoadingScreen />;
-  if (session?.user) return <Navigate to="/" replace />;
+  // An already-signed-in visitor who followed an invite link goes to the accept
+  // page (it auto-joins / shows a mismatch), not the generic home redirect.
+  if (session?.user) {
+    return <Navigate to={inviteToken ? paths.acceptInvite(inviteToken) : '/'} replace />;
+  }
 
   return <>{children}</>;
 }

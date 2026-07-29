@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Crown, ShieldCheck, ShieldOff, UserMinus } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/auth-client";
 import {
@@ -10,6 +10,7 @@ import {
   useRemoveMember,
   type MemberDTO,
 } from "../api/use-members";
+import { useInvites } from "../api/use-invites";
 
 /**
  * Workspace member roster. Every member sees the list; admins additionally get
@@ -21,6 +22,10 @@ export function MembersTable({ workspaceId, canManage }: { workspaceId: string; 
   const currentUserId = session?.user.id;
 
   const { data: members, isPending } = useMembers(workspaceId);
+  // Pending (invited-but-not-joined) people show as muted "Invited" rows. The
+  // endpoint is admin-only, so only fetch/show them when the caller can manage.
+  const { data: invites } = useInvites(workspaceId, canManage);
+  const invited = canManage ? (invites ?? []) : [];
   const changeRole = useChangeMemberRole(workspaceId);
   const removeMember = useRemoveMember(workspaceId);
   const busy = changeRole.isPending || removeMember.isPending;
@@ -57,19 +62,17 @@ export function MembersTable({ workspaceId, canManage }: { workspaceId: string; 
         <tbody className="divide-y divide-border">
           {isPending ? (
             <Row colSpan={canManage ? 3 : 2}>Loading members…</Row>
-          ) : !members || members.length === 0 ? (
+          ) : (members?.length ?? 0) + invited.length === 0 ? (
             <Row colSpan={canManage ? 3 : 2}>No members yet.</Row>
           ) : (
-            members.map((m) => {
+            <>
+            {(members ?? []).map((m) => {
               const isSelf = m.userId === currentUserId;
               return (
                 <tr key={m.userId} className="align-middle">
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-3">
-                      <Avatar className="h-8 w-8">
-                        {m.image && <AvatarImage src={m.image} alt={m.name} />}
-                        <AvatarFallback>{initials(m.name || m.email)}</AvatarFallback>
-                      </Avatar>
+                      <UserAvatar name={m.name || m.email} image={m.image} className="h-8 w-8" />
                       <div className="min-w-0">
                         <div className="truncate font-medium text-foreground">
                           {m.name || "—"}
@@ -111,17 +114,35 @@ export function MembersTable({ workspaceId, canManage }: { workspaceId: string; 
                   )}
                 </tr>
               );
-            })
+            })}
+            {invited.map((inv) => (
+              <tr key={inv.id} className="align-middle">
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-3">
+                    <UserAvatar name={inv.email} className="h-8 w-8 opacity-60" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm text-foreground">{inv.email}</span>
+                        <Badge tone="muted">Invited</Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Expires {new Date(inv.expiresAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <Badge tone="muted">{inv.role}</Badge>
+                </td>
+                {canManage && <td className="px-3 py-2" />}
+              </tr>
+            ))}
+            </>
           )}
         </tbody>
       </table>
     </div>
   );
-}
-
-function initials(label: string): string {
-  const parts = label.trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
 function Row({ colSpan, children }: { colSpan: number; children: ReactNode }) {

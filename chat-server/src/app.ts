@@ -14,6 +14,7 @@ import { workspacesRouter } from "./modules/workspaces/workspaces.routes.js";
 import { acceptInvitesRouter } from "./modules/members/accept-invites.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
+import { preferencesRouter } from "./modules/preferences/preferences.routes.js";
 import { attachmentsRouter } from "./modules/attachments/attachments.routes.js";
 import { filesRouter } from "./modules/files/files.routes.js";
 
@@ -82,13 +83,17 @@ app.use(errorHandler);
 
 function registerModuleRoutes(application: express.Express): void {
   application.use("/api/workspaces", authenticate, workspacesRouter);
-  // Invite acceptance is authed but NOT workspace-scoped — invitees aren't
-  // members yet, so this must sit outside the workspace membership wall.
-  application.use("/api/invites", authenticate, acceptInvitesRouter);
+  // Invites are NOT workspace-scoped (invitees aren't members yet) and auth is
+  // split PER-ROUTE inside the router: GET /:token is public (a logged-out
+  // invitee must view it to sign up), POST /:token/accept is authenticated.
+  application.use("/api/invites", acceptInvitesRouter);
   application.use("/api/users", authenticate, usersRouter);
   // The notification inbox is user-scoped and spans workspaces, so (like invite
   // acceptance) it sits behind `authenticate` but outside the workspace wall.
   application.use("/api/notifications", authenticate, notificationsRouter);
+  // UI preferences (theme, density) are user-global — one payload per person,
+  // shared across every workspace — so they sit outside the workspace wall too.
+  application.use("/api/preferences", authenticate, preferencesRouter);
   // Attachment policy is user-scoped (workspace-agnostic); presign is mounted
   // on the channel router (needs the channel-membership context).
   application.use("/api/attachments", authenticate, attachmentsRouter);
@@ -125,11 +130,13 @@ function serveSpa(application: express.Express): void {
   // here are PUBLIC by definition (they ship to the browser). `<` is escaped so
   // a value can't break out of the <script>.
   const runtimeConfig = { turnstileSiteKey: env.TURNSTILE_SITE_KEY ?? null };
-  const configScript = `<script>window.__APP_CONFIG__=${JSON.stringify(runtimeConfig).replace(
-    /</g,
-    "\\u003c",
-  )}</script>`;
-  const indexHtml = readFileSync(indexPath, "utf8").replace("</head>", `${configScript}</head>`);
+  const configScript = `<script>window.__APP_CONFIG__=${JSON.stringify(
+    runtimeConfig,
+  ).replace(/</g, "\\u003c")}</script>`;
+  const indexHtml = readFileSync(indexPath, "utf8").replace(
+    "</head>",
+    `${configScript}</head>`,
+  );
 
   // Serve hashed assets directly, but `index: false` so `/` flows through the
   // HTML handler below (which injects config) instead of the raw file.

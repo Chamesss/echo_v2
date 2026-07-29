@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Link, useNavigate } from "react-router";
+import { zodResolver } from "@/lib/zod-resolver";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { paths } from "@/lib/paths";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,6 +37,10 @@ import { SocialSignInButtons } from "./SocialSignInButtons";
  */
 export function SignInForm() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const inviteToken = params.get("invite") ?? "";
+  // On an invite sign-in, return to the accept page (it auto-joins); else home.
+  const successTarget = inviteToken ? paths.acceptInvite(inviteToken) : "/";
   const signInMut = useSignIn();
   const verifyMut = useVerifyTotp();
   const captcha = useCaptcha();
@@ -70,7 +75,7 @@ export function SignInForm() {
             return;
           }
           toast.success("Signed in");
-          navigate("/");
+          navigate(successTarget);
         },
         onError: (err) => {
           // Turnstile tokens are single-use — reset so the user can retry.
@@ -85,7 +90,7 @@ export function SignInForm() {
     verifyMut.mutate(values, {
       onSuccess: () => {
         toast.success("Signed in");
-        navigate("/");
+        navigate(successTarget);
       },
       onError: (err) => toast.error(err.message),
     });
@@ -221,7 +226,7 @@ export function SignInForm() {
       <p className="text-center text-sm text-muted-foreground">
         Don't have an account?{" "}
         <Link
-          to="/register"
+          to={inviteToken ? `${paths.register}?invite=${encodeURIComponent(inviteToken)}` : paths.register}
           className="font-medium text-foreground underline-offset-2 hover:underline"
         >
           Sign up

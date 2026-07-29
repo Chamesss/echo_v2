@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { openApiRegistry } from "../../shared/openapi/registry.js";
-import { presignAvatarBody } from "./users.dto.js";
+import { presignAvatarBody, setPasswordBody } from "./users.dto.js";
 
 /**
  * OpenAPI registrations for the users module.
@@ -51,6 +51,37 @@ openApiRegistry.registerPath({
     },
     400: {
       description: "Invalid body or S3 not configured on this server",
+      content: { "application/json": { schema: errorBodySchema } },
+    },
+    401: {
+      description: "Not authenticated",
+      content: { "application/json": { schema: errorBodySchema } },
+    },
+  },
+});
+
+openApiRegistry.register("SetPasswordBody", setPasswordBody);
+
+openApiRegistry.registerPath({
+  method: "post",
+  path: "/api/users/me/password",
+  tags: ["Users"],
+  summary: "Set a first password for a social-only account",
+  description:
+    "For users who signed up through an OAuth provider and have no password " +
+    "yet, so no current password is required. Rejected if the account already " +
+    "has one — changing an existing password goes through Better Auth's " +
+    "`/api/auth/change-password`, which verifies the current password.",
+  security: [{ sessionCookie: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: setPasswordBody } },
+    },
+  },
+  responses: {
+    204: { description: "Password set" },
+    400: {
+      description: "Password too short/long, or the account already has one",
       content: { "application/json": { schema: errorBodySchema } },
     },
     401: {

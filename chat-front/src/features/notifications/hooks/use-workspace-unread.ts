@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { channelsKey } from "@/features/channels/api/keys";
-import { dmsKey, type DirectMessageDTO } from "@/features/channels/api/use-dms";
+import { dmsKey, fetchDms, type DirectMessageDTO } from "@/features/channels/api/use-dms";
 import { useActiveConversation } from "@/features/channels/hooks/use-active-channel";
-import type { ChannelDTO } from "@/features/channels/api/use-channels";
+import { fetchChannels, type ChannelDTO } from "@/features/channels/api/use-channels";
 import { useNotificationsSummary } from "../api/use-notifications";
 import { sumUnread } from "../store";
 
@@ -37,12 +37,25 @@ export function useWorkspaceUnread(
   // Read — but never fetch — the workspace's lists, reactively. A disabled query
   // still observes the cache, so the badge re-renders when the bump/clear path
   // mutates the lists, without the rail eagerly loading every workspace's data.
+  //
+  // `queryFn` is passed even though `enabled: false` means it never runs here.
+  // Two reasons:
+  //   1. `useBaseQuery` console.errors "No queryFn was passed" on EVERY render
+  //      of a queryFn-less useQuery, `enabled` notwithstanding. The rail mounts
+  //      two of these per workspace, which buried the dev console.
+  //   2. React Query keeps one options object per query key, written by
+  //      whichever observer rendered last — often one of these. A refetch
+  //      driven by those options only works because `Query.fetch` falls back to
+  //      borrowing a queryFn from another observer; that fallback is an
+  //      implementation detail we'd rather not have the DM list depend on.
   const { data: channels } = useQuery<ChannelDTO[]>({
     queryKey: channelsKey(workspaceId),
+    queryFn: () => fetchChannels(workspaceId),
     enabled: false,
   });
   const { data: dms } = useQuery<DirectMessageDTO[]>({
     queryKey: dmsKey(workspaceId),
+    queryFn: () => fetchDms(workspaceId),
     enabled: false,
   });
 

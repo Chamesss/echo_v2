@@ -31,7 +31,7 @@ export default function MembersPage() {
       {canManage && (
         <PageSection
           title="Invite people"
-          description="Send an email invitation, or manage pending invites."
+          description="Send an email invitation. Pending invites appear in the roster above as “Invited.”"
         >
           <InvitePanel workspaceId={workspace.id} />
         </PageSection>

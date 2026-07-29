@@ -5,11 +5,20 @@ import { channelsKey } from "./keys";
 
 export type { ChannelDTO };
 
+/**
+ * Fetcher for `channelsKey`, exported for the same reason as `fetchDms`: every
+ * observer of the key supplies the same `queryFn`, including the cache-only one
+ * in `useWorkspaceUnread`.
+ */
+export function fetchChannels(workspaceId: string): Promise<ChannelDTO[]> {
+  return apiFetch<ChannelDTO[]>(`/api/workspaces/${workspaceId}/channels`);
+}
+
 /** Channels visible to the user in this workspace (public + joined private). */
 export function useChannels(workspaceId: string) {
   return useQuery({
     queryKey: channelsKey(workspaceId),
-    queryFn: () => apiFetch<ChannelDTO[]>(`/api/workspaces/${workspaceId}/channels`),
+    queryFn: () => fetchChannels(workspaceId),
   });
 }
 

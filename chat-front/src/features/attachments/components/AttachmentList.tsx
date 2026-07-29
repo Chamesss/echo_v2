@@ -1,5 +1,6 @@
 import { Download, FileText } from "lucide-react";
 import type { AttachmentWire } from "@server/infrastructure/realtime/protocol";
+import { Image } from "@/components/ui/image";
 import { formatBytes } from "../api/use-attachment-policy";
 
 /**
@@ -23,10 +24,16 @@ function AttachmentItem({ attachment: a }: { attachment: AttachmentWire }) {
   if (a.category === "image") {
     return (
       <a href={a.url} target="_blank" rel="noreferrer" className="block w-fit">
-        <img
+        <Image
           src={a.url}
           alt={a.filename}
           className="max-h-72 max-w-xs rounded-md border border-border object-cover"
+          fallback={
+            <span className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              <FileText className="size-4 shrink-0" />
+              <span className="truncate">{a.filename}</span>
+            </span>
+          }
         />
       </a>
     );
