@@ -8,7 +8,7 @@ import { z } from "zod";
  * typed, validated values — and a clear startup-time crash if a required
  * variable is missing, instead of a vague runtime failure deep in a request.
  *
- * Optional vars (Google OAuth, SMTP, S3) are accepted as undefined. The
+ * Optional vars (Google OAuth, email, S3) are accepted as undefined. The
  * downstream consumers (`auth.ts`, `email-service.ts`, `s3-service.ts`)
  * check presence and degrade gracefully (no Google button, NoOp email
  * service, 501 on avatar upload).
@@ -24,7 +24,7 @@ const schema = z.object({
   DATABASE_URL: z.url(),
   BETTER_AUTH_SECRET: z
     .string()
-    .min(8, "BETTER_AUTH_SECRET must be at least 32 characters"),
+    .min(8, "BETTER_AUTH_SECRET must be at least 8 characters"),
   BETTER_AUTH_URL: z.url(),
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   GOOGLE_CLIENT_ID: z.string().optional(),
@@ -55,6 +55,17 @@ const schema = z.object({
   // dashboard (the admin plugin in auth.ts) so you're not stuck with no one
   // able to promote anyone. Empty by default — no implicit admins.
   ADMIN_USER_IDS: z.string().default(""),
+  // Resend API key (resend.com → API Keys). When set, Resend is THE email
+  // transport and every SMTP_* var below is ignored. Optional — unset, the
+  // service falls back to SMTP, then to logging (see email-service.ts).
+  RESEND_API_KEY: z.string().optional(),
+  // Default from address for outgoing mail, e.g. "Echo <no-reply@domain.com>".
+  // On Resend the sending domain must be verified in the dashboard or every
+  // send is rejected — use "onboarding@resend.dev" to send without a domain
+  // (delivers only to your own Resend account address).
+  EMAIL_FROM: z.string().optional(),
+  // SMTP fallback, used only when RESEND_API_KEY is absent. Handy for local
+  // Mailtrap sandboxes and self-hosters who'd rather not add a SaaS provider.
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
   SMTP_SECURE: z
@@ -63,6 +74,11 @@ const schema = z.object({
     .transform((v) => v === "true"),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
+  // From address for the SMTP transport only, overriding EMAIL_FROM. Lets the
+  // two transports send as different addresses — Resend needs a verified
+  // domain, an SMTP relay wants the mailbox it authenticated as — so switching
+  // between them doesn't mean editing EMAIL_FROM each time. Falls back to
+  // EMAIL_FROM when unset.
   SMTP_FROM: z.string().optional(),
   AWS_REGION: z.string().default("us-east-1"),
   S3_BUCKET: z.string().optional(),

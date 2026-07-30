@@ -51,15 +51,29 @@ services:
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
-      # SMTP (transactional email)
+      # Transactional email. Set RESEND_API_KEY + EMAIL_FROM (from address must
+      # be on a domain verified in the Resend dashboard) and leave the SMTP_*
+      # block empty — it's the fallback, used only when RESEND_API_KEY is unset.
+      # With neither, emails are logged instead of delivered, which silently
+      # breaks password reset and workspace invites in production.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # SMTP fallback (optional)
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
+        sync: false
+      # true for port 465, false for 587 — omitting this defaults to false,
+      # which fails against 465-only providers.
+      - key: SMTP_SECURE
         sync: false
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
         sync: false
+      # Optional: from-address for the SMTP transport only, overrides EMAIL_FROM.
       - key: SMTP_FROM
         sync: false
       # OAuth + CAPTCHA (optional)

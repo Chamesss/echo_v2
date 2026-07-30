@@ -11,20 +11,20 @@ frontend and backend, the WebSocket layer, and the main end-to-end flows.
 
 ## 1. Tech stack at a glance
 
-| Layer | Choice |
-|---|---|
-| Runtime / package manager | **Bun** (workspaces monorepo) |
-| Backend | **Express 4** + TypeScript (ESM) |
-| Database | **PostgreSQL** (`pg` pool + **Drizzle ORM** for the control plane, raw SQL for tenants) |
-| Auth | **Better Auth** (sessions, OAuth, 2FA, admin plugin) |
-| Realtime | **`ws`** WebSocket server + **Postgres LISTEN/NOTIFY** backplane |
-| Validation | **Zod** (request DTOs, env vars, frontend forms) |
-| API docs | OpenAPI (zod-to-openapi) served by **Scalar** at `/api/docs` |
-| Files | **S3** (private bucket, presigned PUT + signed-redirect GET) |
-| Frontend | **React 18** + **Vite** + **React Router 7** |
-| Server state | **TanStack React Query** |
-| UI | **Tailwind CSS v4** + shadcn-style components (Radix primitives) |
-| Tests | **Vitest** (server: integration against real Postgres; front: React Testing Library) |
+| Layer                     | Choice                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| Runtime / package manager | **Bun** (workspaces monorepo)                                                           |
+| Backend                   | **Express 4** + TypeScript (ESM)                                                        |
+| Database                  | **PostgreSQL** (`pg` pool + **Drizzle ORM** for the control plane, raw SQL for tenants) |
+| Auth                      | **Better Auth** (sessions, OAuth, 2FA, admin plugin)                                    |
+| Realtime                  | **`ws`** WebSocket server + **Postgres LISTEN/NOTIFY** backplane                        |
+| Validation                | **Zod** (request DTOs, env vars, frontend forms)                                        |
+| API docs                  | OpenAPI (zod-to-openapi) served by **Scalar** at `/api/docs`                            |
+| Files                     | **S3** (private bucket, presigned PUT + signed-redirect GET)                            |
+| Frontend                  | **React 18** + **Vite** + **React Router 7**                                            |
+| Server state              | **TanStack React Query**                                                                |
+| UI                        | **Tailwind CSS v4** + shadcn-style components (Radix primitives)                        |
+| Tests                     | **Vitest** (server: integration against real Postgres; front: React Testing Library)    |
 
 ### Repo layout
 
@@ -40,7 +40,7 @@ echo/
 │   │   │   ├── database/     # control-plane (Drizzle) + tenant (search_path) clients
 │   │   │   ├── realtime/     # protocol, hub, backplane, WS server
 │   │   │   ├── storage/      # S3
-│   │   │   ├── email/        # SMTP + templates
+│   │   │   ├── email/        # Resend / SMTP transports + templates
 │   │   │   ├── provisioning/ # workspace → tenant schema creation
 │   │   │   └── audit/        # auth_events log
 │   │   ├── modules/      # feature slices: routes → controller → service → dto
@@ -66,7 +66,7 @@ echo/
 
 In **development** they run as two processes on two ports (SPA on `:3000`, API on `:4000`),
 so Vite's HMR works normally. In **production** the server serves the compiled SPA itself
-(`serveSpa()` in [app.ts](echo-server/src/app.ts)) — the browser origin *is* the API origin.
+(`serveSpa()` in [app.ts](echo-server/src/app.ts)) — the browser origin _is_ the API origin.
 
 Why this matters: a single origin means the session cookie is same-site, there's no CORS
 preflight on every call, and the WebSocket upgrade goes to the same host. Cross-origin dev
@@ -93,7 +93,7 @@ one `betterAuth({...})` config mounted at `/api/auth/*`. It gives us, out of the
   is configured)
 - per-endpoint **rate limiting** (e.g. 5 sign-ins/min, 3 sign-ups/hour)
 
-Better Auth writes to *our* Postgres tables through its Drizzle adapter — `users`,
+Better Auth writes to _our_ Postgres tables through its Drizzle adapter — `users`,
 `sessions`, `accounts`, `verifications`, `twoFactors` (mapped in
 [control/schema.ts](echo-server/src/infrastructure/database/control/schema.ts)). So identity
 data is not in a third-party service; it's in the same database as everything else and can be
@@ -116,10 +116,10 @@ authenticated session.
 
 Data is split into two planes:
 
-| Plane | Where | What lives there |
-|---|---|---|
-| **Control plane** | `public` schema, accessed via Drizzle | users, sessions, accounts, workspaces, memberships, invite tokens, notifications, preferences, `tenant_catalog`, auth audit log |
-| **Tenant plane** | one `tenant_<slug>` schema **per workspace**, accessed via raw SQL | channels, channel_members, messages, message_revisions, attachments |
+| Plane             | Where                                                              | What lives there                                                                                                                |
+| ----------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Control plane** | `public` schema, accessed via Drizzle                              | users, sessions, accounts, workspaces, memberships, invite tokens, notifications, preferences, `tenant_catalog`, auth audit log |
+| **Tenant plane**  | one `tenant_<slug>` schema **per workspace**, accessed via raw SQL | channels, channel_members, messages, message_revisions, attachments                                                             |
 
 Creating a workspace runs [provisionWorkspace()](echo-server/src/infrastructure/provisioning/workspace.ts)
 — a **single Postgres transaction** that inserts the workspace row, inserts the creator's
@@ -163,12 +163,12 @@ Each feature is a module folder under `src/modules/<feature>/` with the same sha
 
 Authorization is **layered as middleware**, so it can't be forgotten per-route:
 
-| Guard | Question it answers | Where |
-|---|---|---|
-| `authenticate` | Is there a valid session? → sets `req.user` | mounted per route family in `app.ts` |
-| `loadWorkspace` | Is this user a member of `:workspaceId`? → sets `req.workspace` (role, isOwner) | `workspacesRouter.use('/:workspaceId', …)` |
-| `requireWorkspaceRole('admin')` | Is the member an admin? | per-route |
-| `assertChannelMember` / `assertChannelAccess` | May this user see *this channel*? | inside services (also used by the WS `subscribe` handler) |
+| Guard                                         | Question it answers                                                             | Where                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `authenticate`                                | Is there a valid session? → sets `req.user`                                     | mounted per route family in `app.ts`                      |
+| `loadWorkspace`                               | Is this user a member of `:workspaceId`? → sets `req.workspace` (role, isOwner) | `workspacesRouter.use('/:workspaceId', …)`                |
+| `requireWorkspaceRole('admin')`               | Is the member an admin?                                                         | per-route                                                 |
+| `assertChannelMember` / `assertChannelAccess` | May this user see _this channel_?                                               | inside services (also used by the WS `subscribe` handler) |
 
 Because channels, DMs, members and invites are all mounted **under**
 `/api/workspaces/:workspaceId/…`, they inherit the membership check for free:
@@ -201,7 +201,7 @@ it is explicitly allowed to drop, duplicate, or reorder frames without corruptin
 
 The mechanism that makes that safe is a **per-channel change clock**:
 
-- `channels.last_seq` — a monotonic counter bumped on *every* message create/edit/delete
+- `channels.last_seq` — a monotonic counter bumped on _every_ message create/edit/delete
 - `messages.seq` — the clock value at insert (immutable → stable ordering + history paging)
 - `messages.updated_seq` — the clock value at the last mutation (the reconciliation key)
 
@@ -220,7 +220,7 @@ Sends are also **idempotent**: the client generates a `clientId` UUID, and
 `(channel_id, client_id)` is unique. A retried send returns the existing row without burning
 a sequence number, so an optimistic UI and a flaky network can't produce duplicates.
 
-The broadcast is fired *after* the transaction commits. If the broadcast fails entirely, the
+The broadcast is fired _after_ the transaction commits. If the broadcast fails entirely, the
 message is still durable and every client heals on its next catch-up or reconnect.
 
 ### 2.6 Backplane: Postgres LISTEN/NOTIFY, not Redis
@@ -237,7 +237,7 @@ instance A has to reach subscribers on instance B. Rather than add Redis, the
 - Channel names are opaque strings — `rt_ws_<workspaceId>` and `rt_user_<userId>` — validated
   against a regex before being quoted into `LISTEN` (identifiers can't be parameterized).
 - `pg_notify` payloads are capped at 8 KB. Oversized events are **skipped with a warning**
-  rather than throwing — clients just catch up over REST. This is only viable *because* of
+  rather than throwing — clients just catch up over REST. This is only viable _because_ of
   the seq design in 2.5.
 
 `Backplane` is an interface, so swapping in Redis later touches one file and nothing else.
@@ -248,10 +248,10 @@ One path in, one path out — so there's no chance of double-sending locally.
 
 ### 2.7 Two sockets, on purpose
 
-| Socket | Path | Scope | Carries |
-|---|---|---|---|
-| **Workspace** | `/ws?workspaceId=…` | one workspace, subscribes to open channels | `message.created/updated/deleted`, `channel.read`, roster + channel-lifecycle events |
-| **Awareness (user)** | `/ws/user` | the signed-in user, cross-workspace | `unread.bump`, `notification.created`, and targeted `workspace.deleted` / `channel.added` / `channel.removed` / `dm.created` |
+| Socket               | Path                | Scope                                      | Carries                                                                                                                      |
+| -------------------- | ------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Workspace**        | `/ws?workspaceId=…` | one workspace, subscribes to open channels | `message.created/updated/deleted`, `channel.read`, roster + channel-lifecycle events                                         |
+| **Awareness (user)** | `/ws/user`          | the signed-in user, cross-workspace        | `unread.bump`, `notification.created`, and targeted `workspace.deleted` / `channel.added` / `channel.removed` / `dm.created` |
 
 Why split them? Unread badges and notifications must work **where you aren't** — on the
 dashboard, or while you're in a different workspace, neither of which holds a workspace
@@ -260,7 +260,7 @@ the workspace socket is mounted with `key={workspaceId}` so switching workspaces
 down and builds another.
 
 A direct consequence: unread counting is owned **exclusively** by the awareness socket. The
-channel stream deliberately does *not* bump unread, or an open channel would double-count.
+channel stream deliberately does _not_ bump unread, or an open channel would double-count.
 
 ### 2.8 Files: private bucket, presigned upload, signed-redirect download
 
@@ -271,7 +271,7 @@ Attachments and avatars live in a private S3 bucket under a `echo/` namespace. T
    straight to S3. The API never proxies file bytes.
 2. **Trust boundary at send time** — when the message is posted with those keys,
    `resolveAttachmentsForSend` re-checks key ownership, issues a **HEAD** to read the object's
-   *real* content-type and size, and re-validates against policy. The client cannot spoof
+   _real_ content-type and size, and re-validates against policy. The client cannot spoof
    metadata; a bad or incomplete upload fails the send before any row is written.
 3. **Download** — the stored `url` is a stable pointer at `GET /api/files?key=…`, which 302s
    to a freshly-signed, short-lived S3 GET. Stored/cached message rows therefore never expire,
@@ -309,13 +309,19 @@ Both sides parse `process.env` / `import.meta.env` through a Zod schema at impor
 or malformed variable crashes at startup with a clear message instead of failing deep inside
 a request six hours later.
 
-Optional integrations degrade gracefully rather than blocking boot: no SMTP → emails print to
-the console; no S3 → uploads 501; no OAuth credentials → that provider isn't registered; no
-Turnstile secret → no CAPTCHA.
+Optional integrations degrade gracefully rather than blocking boot: no email transport →
+emails print to the console; no S3 → uploads 501; no OAuth credentials → that provider isn't
+registered; no Turnstile secret → no CAPTCHA.
+
+Email specifically picks its transport by precedence, all three resolved at boot in
+[email-service.ts](echo-server/src/infrastructure/email/email-service.ts): `RESEND_API_KEY`
+set → Resend's HTTP API; else `SMTP_HOST` set → nodemailer over SMTP; else log-only. Both
+transports need a from-address (`EMAIL_FROM`), and on Resend its
+domain must be verified there or every send is rejected.
 
 One wrinkle worth knowing: `VITE_*` variables are frozen at **build** time, but a Docker image
 is built once and deployed to many environments. So genuinely-public runtime values (currently
-the Turnstile *site* key) are injected by the server into `index.html` as
+the Turnstile _site_ key) are injected by the server into `index.html` as
 `window.__APP_CONFIG__`, and the frontend prefers that over the build-time value.
 
 ---
@@ -341,7 +347,7 @@ SignInForm
             └─ Set-Cookie: better-auth.session_token   HttpOnly; SameSite=Lax; Secure(prod)
 ```
 
-The cookie is the *only* credential. There is no token in `localStorage`, so XSS can't read
+The cookie is the _only_ credential. There is no token in `localStorage`, so XSS can't read
 it. `SameSite=Lax` blocks cross-site POSTs while still allowing top-level navigation (needed
 for the OAuth redirect to come back). Lifetime is `AUTH_SESSION_EXPIRES_DAYS` (default 7)
 with `updateAge: 24h` — the session is rolled forward at most once a day if the user is
@@ -389,7 +395,7 @@ Three mechanisms keep the UI from showing a stale "logged in" state:
 2. **401 interception** — any `apiFetch` that returns 401 dispatches the global
    `auth:unauthorized` event; `useUnauthorizedRedirect` (root layout) clears the React Query
    cache and navigates to `/login`.
-3. **Guards** — `RequireAuth` shows a spinner only on the *initial* session resolution
+3. **Guards** — `RequireAuth` shows a spinner only on the _initial_ session resolution
    (tracked with a ref), so background refetches don't unmount the page, then redirects to
    `/login` remembering `location.state.from`.
 
@@ -581,7 +587,7 @@ logged in with a different email (mismatch notice), logged in with the right ema
 ```
 
 Meanwhile the sender's UI already showed the message optimistically (with `OPTIMISTIC_SEQ`);
-when the real row arrives — over the socket *or* as the POST response — `mergeMessage`
+when the real row arrives — over the socket _or_ as the POST response — `mergeMessage`
 reconciles it by `clientId`.
 
 ### 5.4 Reading, unread counts and receipts
@@ -611,7 +617,7 @@ docker compose up db
 
 # 2. Env
 cp echo-server/.env.example echo-server/.env     # DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL, CORS_ORIGINS
-                                                 # optional: SMTP, S3, OAuth, Turnstile
+                                                 # optional: email (Resend/SMTP), S3, OAuth, Turnstile
 
 # 3. Control-plane migrations
 bun run db:migrate
@@ -646,20 +652,21 @@ it can't drift from the implementation.
 
 ## 7. Where to look for what
 
-| I want to understand… | Read |
-|---|---|
-| Middleware order, what's public vs. gated | [echo-server/src/app.ts](echo-server/src/app.ts) |
-| Everything about auth | [infrastructure/auth/auth.ts](echo-server/src/infrastructure/auth/auth.ts) |
-| The realtime wire contract | [infrastructure/realtime/protocol.ts](echo-server/src/infrastructure/realtime/protocol.ts) |
-| WS handshake + authorization | [infrastructure/realtime/server.ts](echo-server/src/infrastructure/realtime/server.ts) |
-| Socket registry + fan-out | [infrastructure/realtime/hub.ts](echo-server/src/infrastructure/realtime/hub.ts) |
-| Cross-instance delivery | [infrastructure/realtime/backplane.ts](echo-server/src/infrastructure/realtime/backplane.ts) |
-| Tenant isolation | [database/tenant/client.ts](echo-server/src/infrastructure/database/tenant/client.ts) + [tenant/init.sql](echo-server/src/infrastructure/database/tenant/init.sql) |
-| The sequence/idempotency engine | [modules/channels/messages.service.ts](echo-server/src/modules/channels/messages.service.ts) |
-| Client-side gap detection | [features/channels/realtime/use-channel-stream.ts](echo-front/src/features/channels/realtime/use-channel-stream.ts) |
-| Socket lifecycle on the client | [lib/realtime.ts](echo-front/src/lib/realtime.ts), [lib/user-realtime.ts](echo-front/src/lib/user-realtime.ts) |
-| The route tree | [echo-front/src/router.tsx](echo-front/src/router.tsx) |
-| Feature status / roadmap | [docs/SPRINT-TRACKER.md](docs/SPRINT-TRACKER.md) |
+| I want to understand…                                                | Read                                                                                                                                                               |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Middleware order, what's public vs. gated                            | [echo-server/src/app.ts](echo-server/src/app.ts)                                                                                                                   |
+| Everything about auth                                                | [infrastructure/auth/auth.ts](echo-server/src/infrastructure/auth/auth.ts)                                                                                         |
+| The auth flow end to end (endpoints, cookies, logout, failure modes) | [docs/AUTH.md](docs/AUTH.md)                                                                                                                                       |
+| The realtime wire contract                                           | [infrastructure/realtime/protocol.ts](echo-server/src/infrastructure/realtime/protocol.ts)                                                                         |
+| WS handshake + authorization                                         | [infrastructure/realtime/server.ts](echo-server/src/infrastructure/realtime/server.ts)                                                                             |
+| Socket registry + fan-out                                            | [infrastructure/realtime/hub.ts](echo-server/src/infrastructure/realtime/hub.ts)                                                                                   |
+| Cross-instance delivery                                              | [infrastructure/realtime/backplane.ts](echo-server/src/infrastructure/realtime/backplane.ts)                                                                       |
+| Tenant isolation                                                     | [database/tenant/client.ts](echo-server/src/infrastructure/database/tenant/client.ts) + [tenant/init.sql](echo-server/src/infrastructure/database/tenant/init.sql) |
+| The sequence/idempotency engine                                      | [modules/channels/messages.service.ts](echo-server/src/modules/channels/messages.service.ts)                                                                       |
+| Client-side gap detection                                            | [features/channels/realtime/use-channel-stream.ts](echo-front/src/features/channels/realtime/use-channel-stream.ts)                                                |
+| Socket lifecycle on the client                                       | [lib/realtime.ts](echo-front/src/lib/realtime.ts), [lib/user-realtime.ts](echo-front/src/lib/user-realtime.ts)                                                     |
+| The route tree                                                       | [echo-front/src/router.tsx](echo-front/src/router.tsx)                                                                                                             |
+| Feature status / roadmap                                             | [docs/SPRINT-TRACKER.md](docs/SPRINT-TRACKER.md)                                                                                                                   |
 
 The source files carry long explanatory header comments — including the reasoning behind the
 non-obvious choices (why no cookie cache, why `SET LOCAL search_path`, why the loopback

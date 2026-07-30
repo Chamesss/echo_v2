@@ -7,8 +7,9 @@
  * approach for a starter app. When the email surface grows past a handful
  * of templates we'd switch to a library (react-email is the popular pick).
  *
- * Each `*Template` function returns `{ subject, html }` so the calling
- * service doesn't have to know template internals.
+ * Each `*Template` function returns `{ subject, html, text }` so the calling
+ * service doesn't have to know template internals. Both body parts are always
+ * populated — see `renderText` for why the plaintext one isn't optional.
  */
 
 function escape(s: string): string {
@@ -60,6 +61,21 @@ function renderLayout(title: string, preview: string, body: string): string {
 </html>`;
 }
 
+/**
+ * Plaintext counterpart to `renderLayout` — the `text/plain` alternative part.
+ *
+ * Not optional: HTML-only mail scores worse with spam filters, and plaintext is
+ * what clients in text mode (and some corporate gateways that strip HTML) show.
+ * Takes paragraphs, emits them blank-line separated with the same footer as the
+ * HTML card. Interpolate values RAW into these — `escape()` belongs to the HTML
+ * side, and its entities would show up literally here.
+ */
+function renderText(paragraphs: string[]): string {
+  return [...paragraphs, "--", "Echo - This is an automated email."].join(
+    "\n\n",
+  );
+}
+
 function ctaButton(label: string, url: string): string {
   return `
     <p style="margin:0 0 24px;">
@@ -102,6 +118,13 @@ export function resetPasswordTemplate({ name, url }: { name: string; url: string
         </p>
       `,
     ),
+    text: renderText([
+      "Reset your password",
+      `Hi ${name},`,
+      "We received a request to reset your Echo password. Open the link below to choose a new one. This link expires in 1 hour.",
+      url,
+      "If you didn't request a password reset, you can safely ignore this email — your password won't change.",
+    ]),
   };
 }
 
@@ -125,6 +148,12 @@ export function verifyEmailTemplate({ name, url }: { name: string; url: string }
         ${ctaButton("Verify email", url)}
       `,
     ),
+    text: renderText([
+      "Verify your email",
+      `Hi ${name},`,
+      "Open the link below to verify your email address and finish activating your Echo account.",
+      url,
+    ]),
   };
 }
 
@@ -164,6 +193,13 @@ export function changeEmailTemplate({
         </p>
       `,
     ),
+    text: renderText([
+      "Confirm email change",
+      `Hi ${name},`,
+      `You requested to change your Echo email address to ${newEmail}. Open the link below to confirm. This link expires in 1 hour.`,
+      url,
+      "If you didn't request this change, ignore this email and consider changing your password — someone else may have access to your account.",
+    ]),
   };
 }
 
@@ -203,30 +239,12 @@ export function workspaceInviteTemplate({
         </p>
       `,
     ),
-  };
-}
-
-/**
- * Sent once on first sign-up. Cosmetic — Better Auth doesn't gate anything on
- * delivery, so a missed send is fine (logged via NoOpEmailService in dev).
- */
-export function welcomeTemplate({ name }: { name: string }) {
-  return {
-    subject: "Welcome to Echo",
-    html: renderLayout(
-      "Welcome",
-      `Welcome to Echo, ${name}!`,
-      `
-        <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;">Welcome to Echo</h1>
-        <p style="margin:0 0 16px;line-height:1.5;">Hi ${escape(name)},</p>
-        <p style="margin:0 0 16px;line-height:1.5;color:#374151;">
-          Your account is ready. Create a workspace to start messaging with your
-          team, or join one you've been invited to.
-        </p>
-        <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.5;">
-          Reply to this email if you have any questions.
-        </p>
-      `,
-    ),
+    text: renderText([
+      `Join ${workspaceName}`,
+      `${inviterName} invited you to join the ${workspaceName} workspace on Echo. Open the link below to accept. This invitation expires in 7 days.`,
+      url,
+      `New to Echo? No problem — you'll create your account in a moment, and you'll join ${workspaceName} automatically once you do.`,
+      "If you weren't expecting this invitation, you can safely ignore this email.",
+    ]),
   };
 }
