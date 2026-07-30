@@ -36,8 +36,10 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
  *              off-canvas drawer over a dimmed overlay. The drawer closes on
  *              route change, overlay tap, or its close button.
  *
- * The sidebar's contents are defined once (`sidebar`) and reused by both the
- * desktop column and the mobile drawer so they never drift apart.
+ * The sidebar's contents are defined once (`renderSidebar`) and reused by both
+ * the desktop column and the mobile drawer so they never drift apart. The
+ * drawer passes an `onClose`, which is what puts the X in its header; the
+ * desktop column omits it and renders no close button.
  */
 export function AppShell() {
   const navigate = useNavigate();
@@ -71,10 +73,23 @@ export function AppShell() {
     });
   };
 
-  const sidebar = (
+  // `onClose` is passed by the mobile drawer only. The close button lives IN the
+  // header row rather than floating over it, so flex layout keeps it clear of
+  // the switcher's chevron — absolute positioning had the two overlapping.
+  const renderSidebar = (onClose?: () => void) => (
     <>
       <div className="flex h-16 shrink-0 items-center border-b border-sidebar-border">
         <WorkspaceSwitcher />
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="mr-2 shrink-0 rounded-md p-1.5 text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 space-y-3 overflow-y-auto p-2">
@@ -138,7 +153,7 @@ export function AppShell() {
             palette, so it keeps its color in both light and dark mode, unlike
             the main column which uses the (tinted) mode surfaces. */}
         <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
-          {sidebar}
+          {renderSidebar()}
         </aside>
 
         {/* Mobile overlay. */}
@@ -159,15 +174,7 @@ export function AppShell() {
           )}
           aria-label="Sidebar"
         >
-          <button
-            type="button"
-            onClick={() => setMobileOpen(false)}
-            aria-label="Close menu"
-            className="absolute right-2 top-3 rounded-md p-1.5 text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          >
-            <X className="size-4" />
-          </button>
-          {sidebar}
+          {renderSidebar(() => setMobileOpen(false))}
         </aside>
 
         {/* Main column. */}
