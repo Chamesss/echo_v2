@@ -1,4 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
+import { ApiError } from './api';
 
 /**
  * Shared TanStack Query client.
@@ -17,7 +18,17 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60_000,
-      retry: 1,
+      // Retry once for genuinely transient failures, but NEVER for 401/403.
+      // An auth failure is a state, not a blip: retrying can't fix it, and every
+      // attempt makes `apiFetch` dispatch another `auth:unauthorized`. During
+      // sign-out that doubled each request and each redirect event, turning a
+      // brief race into a runaway loop (see `use-unauthorized-redirect`).
+      retry: (failureCount, error) => {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          return false;
+        }
+        return failureCount < 1;
+      },
       refetchOnWindowFocus: false,
     },
   },
