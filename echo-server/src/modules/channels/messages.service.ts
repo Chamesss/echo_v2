@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { withTenantSchema } from "../../infrastructure/database/tenant/client.js";
 import { hub } from "../../infrastructure/realtime/hub.js";
+import { UserEvents } from "../../infrastructure/realtime/events.js";
 import type {
   AttachmentWire,
   MessageWire,
@@ -264,6 +265,14 @@ export async function sendMessage(
  * (so their sidebar/workspace badges move without a reload) and, for DMs, also
  * persists an inbox notification + pushes `notification.created`.
  *
+ * A DM's FIRST message also re-emits `dm.created`. `openOrCreateDm` already fires
+ * that once, but it fires when the sender clicks "Start" in the picker — possibly
+ * minutes before the message, and NOTIFY is at-most-once, so a recipient who was
+ * disconnected/asleep at that instant never learned the conversation exists and
+ * could only discover it by reloading. Re-emitting here puts discovery on the
+ * durable path (the message itself). The client handler is a bare cache
+ * invalidate, so receiving it twice is a no-op.
+ *
  * Best-effort: the message is already durable and the primary broadcast is done,
  * so a hiccup here must never fail the send — errors are swallowed + logged, and
  * recipients' counts self-heal from the summary endpoint on their next load.
@@ -313,6 +322,14 @@ async function fanOutAwareness(
           updatedSeq: message.updatedSeq,
         },
       });
+      // First message in a DM → also tell them the conversation exists (see the
+      // note above). `seq === 1` is the conversation's opening message: seq is
+      // the immutable creation ordinal off a gapless per-channel clock, so it
+      // holds exactly once per DM and never on a retry (retries return the
+      // existing row without reaching this fan-out).
+      if (isDm && message.seq === 1) {
+        entries.push({ userId: rid, event: UserEvents.dmCreated(workspaceId, channelId) });
+      }
     }
 
     // Inbox notifications (bell + toast) go only to recipients who haven't

@@ -8,6 +8,13 @@ import { formatBytes } from "../api/use-attachment-policy";
  * video/audio as native players, everything else as a download chip. `file`
  * (unknown/active-content) is deliberately never rendered inline — the server
  * also stored it `Content-Disposition: attachment`.
+ *
+ * Sizing: every item caps at `max-w-xs` (20rem) from `sm` up, but only at
+ * `max-w-full` below it. On a phone the message column is narrower than 20rem —
+ * the avatar, the row padding and the timeline's own padding all come out of it
+ * — so a flat 20rem cap let media hang past the column and gave the whole
+ * channel a horizontal scrollbar. A percentage cap can't, since it resolves
+ * against whatever width the column actually has.
  */
 export function AttachmentList({ attachments }: { attachments: AttachmentWire[] }) {
   if (attachments.length === 0) return null;
@@ -23,11 +30,21 @@ export function AttachmentList({ attachments }: { attachments: AttachmentWire[] 
 function AttachmentItem({ attachment: a }: { attachment: AttachmentWire }) {
   if (a.category === "image") {
     return (
-      <a href={a.url} target="_blank" rel="noreferrer" className="block w-fit">
+      // The cap lives on the ANCHOR, not the image: `w-fit` shrink-wraps to the
+      // image, so a pixel max-width on the image would size the anchor to that
+      // pixel width and let both overhang a narrower column. Capping the anchor
+      // and letting the image ride `max-w-full` keeps the link box glued to the
+      // image at every width (no dead click area beside a small one).
+      <a
+        href={a.url}
+        target="_blank"
+        rel="noreferrer"
+        className="block w-fit max-w-full sm:max-w-xs"
+      >
         <Image
           src={a.url}
           alt={a.filename}
-          className="max-h-72 max-w-xs rounded-md border border-border object-cover"
+          className="max-h-72 max-w-full rounded-md border border-border object-cover"
           fallback={
             <span className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
               <FileText className="size-4 shrink-0" />
@@ -43,7 +60,7 @@ function AttachmentItem({ attachment: a }: { attachment: AttachmentWire }) {
       <video
         src={a.url}
         controls
-        className="max-h-72 max-w-xs rounded-md border border-border"
+        className="max-h-72 max-w-full rounded-md border border-border sm:max-w-xs"
       />
     );
   }
@@ -57,7 +74,7 @@ function AttachmentItem({ attachment: a }: { attachment: AttachmentWire }) {
       target="_blank"
       rel="noreferrer"
       download={a.filename}
-      className="flex w-fit max-w-xs items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm hover:bg-accent"
+      className="flex w-fit max-w-full items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm hover:bg-accent sm:max-w-xs"
     >
       <FileText className="size-4 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate">{a.filename}</span>

@@ -5,6 +5,7 @@ import {
   addNotificationToSummary,
   bumpChannelUnread,
   bumpWorkspaceUnread,
+  hasConversation,
   prependNotification,
   sumUnread,
 } from "./store";
@@ -73,6 +74,16 @@ describe("notification store reducers", () => {
     expect(next.find((c) => c.id === "c2")!.unread).toBe(3);
     // An unknown channel returns the list reference unchanged.
     expect(bumpChannelUnread(list, "nope")).toBe(list);
+  });
+
+  it("distinguishes an absent conversation from an unloaded list", () => {
+    const list = [{ id: "c1" }, { id: "c2" }];
+    expect(hasConversation(list, "c1")).toBe(true);
+    expect(hasConversation(list, "nope")).toBe(false);
+    // Not cached yet — also "false", but the provider guards on `undefined`
+    // separately so it doesn't refetch workspaces the user has never opened.
+    expect(hasConversation(undefined, "c1")).toBe(false);
+    expect(hasConversation([], "c1")).toBe(false);
   });
 
   it("sums unread across channel + DM lists", () => {

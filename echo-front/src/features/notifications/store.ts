@@ -47,7 +47,28 @@ export function prependNotification(
   return [n, ...rest];
 }
 
-/** Bump a single channel/DM's unread by 1 in a channels-or-dms list cache. */
+/**
+ * Is this conversation present in a (possibly unloaded) channels-or-dms list?
+ *
+ * `undefined` means "the list isn't cached", which is NOT the same as "absent" —
+ * the provider uses that distinction to decide whether an event naming an
+ * unknown conversation is a cache gap worth healing or just a workspace the user
+ * has never opened (which will fetch on mount anyway).
+ */
+export function hasConversation(
+  list: Array<{ id: string }> | undefined,
+  channelId: string,
+): boolean {
+  return (list ?? []).some((c) => c.id === channelId);
+}
+
+/**
+ * Bump a single channel/DM's unread by 1 in a channels-or-dms list cache.
+ *
+ * Returns the list unchanged when the id isn't there. That silence is why the
+ * provider pairs this with `hasConversation`: a bump for a conversation we've
+ * never seen means our list is stale, not that the event was spurious.
+ */
 export function bumpChannelUnread<T extends { id: string; unread: number }>(
   list: T[] | undefined,
   channelId: string,

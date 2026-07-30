@@ -59,6 +59,33 @@ describe("dm.created events on the realtime bus", () => {
     await openOrCreateDm(ws.workspaceId, a.id, [d.id]);
     expect(toUsers).not.toHaveBeenCalled();
   });
+
+  it("re-emits dm.created on the DM's FIRST message so a missed one still lands", async () => {
+    // The open-or-create emit above is single-shot and fires when the sender
+    // picks the person — possibly long before they type, and NOTIFY is
+    // at-most-once. Riding the message too puts discovery on the durable path.
+    const e = await createUser();
+    await addMember(ws.workspaceId, e.id, "member");
+    const dm = await openOrCreateDm(ws.workspaceId, a.id, [e.id]);
+
+    const toUsers = vi.spyOn(hub, "publishToUsers").mockResolvedValue();
+    await sendMessage(ws.workspaceId, dm.id, a.id, { clientId: randomUUID(), body: "first" });
+
+    const first = toUsers.mock.calls.at(-1)![0];
+    expect(first).toContainEqual({
+      userId: e.id,
+      event: { kind: "dm.created", workspaceId: ws.workspaceId, channelId: dm.id },
+    });
+    // The author is never told about their own conversation.
+    expect(first.filter((x) => x.userId === a.id)).toEqual([]);
+
+    // Every later message is an unread bump only — no repeat.
+    toUsers.mockClear();
+    await sendMessage(ws.workspaceId, dm.id, a.id, { clientId: randomUUID(), body: "second" });
+    const later = toUsers.mock.calls.at(-1)![0];
+    expect(later.some((x) => x.event.kind === "dm.created")).toBe(false);
+    expect(later.some((x) => x.event.kind === "unread.bump")).toBe(true);
+  });
 });
 
 describe("open-or-create (idempotent)", () => {
@@ -129,5 +156,36 @@ describe("listing", () => {
     const dm = await openOrCreateDm(ws.workspaceId, a.id, [b.id]);
     expect((await listChannels(ws.workspaceId, a.id)).map((ch) => ch.id)).not.toContain(dm.id);
     expect((await listDirectMessages(ws.workspaceId, a.id)).map((d) => d.id)).toContain(dm.id);
+  });
+
+  it("orders by last activity, not by message count", async () => {
+    const x = await createUser();
+    const y = await createUser();
+    await addMember(ws.workspaceId, x.id, "member");
+    await addMember(ws.workspaceId, y.id, "member");
+    const order = async (): Promise<string[]> =>
+      (await listDirectMessages(ws.workspaceId, x.id)).map((d) => d.id);
+
+    // `chatty` piles up messages, then goes idle; `quiet` is opened afterwards.
+    const chatty = await openOrCreateDm(ws.workspaceId, x.id, [a.id]);
+    for (const body of ["1", "2", "3"]) {
+      await sendMessage(ws.workspaceId, chatty.id, x.id, { clientId: randomUUID(), body });
+    }
+    const quiet = await openOrCreateDm(ws.workspaceId, x.id, [y.id]);
+
+    // Empty and brand-new, `quiet` still outranks the busier-but-idle thread.
+    // Ordering by `last_seq` (a change COUNTER) buried it at the bottom, which
+    // is where a just-created DM used to land in the recipient's sidebar.
+    let ids = await order();
+    expect(ids.indexOf(quiet.id)).toBeLessThan(ids.indexOf(chatty.id));
+
+    await sendMessage(ws.workspaceId, quiet.id, x.id, { clientId: randomUUID(), body: "hey" });
+    ids = await order();
+    expect(ids.indexOf(quiet.id)).toBeLessThan(ids.indexOf(chatty.id));
+
+    // …and one new message revives the older thread to the top.
+    await sendMessage(ws.workspaceId, chatty.id, x.id, { clientId: randomUUID(), body: "4" });
+    ids = await order();
+    expect(ids.indexOf(chatty.id)).toBeLessThan(ids.indexOf(quiet.id));
   });
 });

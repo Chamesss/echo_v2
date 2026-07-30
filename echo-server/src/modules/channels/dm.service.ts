@@ -146,7 +146,16 @@ export async function openOrCreateDm(
   return dto;
 }
 
-/** The caller's direct & group messages, most-recently-active first. */
+/**
+ * The caller's direct & group messages, most-recently-active first.
+ *
+ * "Active" is the last message's timestamp, falling back to the channel's own
+ * creation time for a DM nobody has written in yet. NOT `last_seq` — that's a
+ * per-channel change COUNTER, so ordering by it ranked a long-idle 500-message
+ * thread above a DM that just received its first message, and buried a
+ * brand-new DM (`last_seq = 0`) at the very bottom where the recipient would
+ * never notice it.
+ */
 export async function listDirectMessages(
   workspaceId: string,
   userId: string,
@@ -157,7 +166,12 @@ export async function listDirectMessages(
          FROM channels c
          JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $1
         WHERE c.type IN ('direct', 'group') AND c.archived = false
-        ORDER BY c.last_seq DESC, c.created_at DESC`,
+        ORDER BY COALESCE(
+                   (SELECT max(m.created_at) FROM messages m
+                     WHERE m.channel_id = c.id AND m.deleted = false),
+                   c.created_at
+                 ) DESC,
+                 c.created_at DESC`,
       [userId],
     );
     // Sequential (one PoolClient can't run queries concurrently).

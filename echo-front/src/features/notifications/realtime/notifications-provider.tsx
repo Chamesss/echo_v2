@@ -19,6 +19,7 @@ import {
   addNotificationToSummary,
   bumpChannelUnread,
   bumpWorkspaceUnread,
+  hasConversation,
   prependNotification,
 } from "../store";
 
@@ -62,6 +63,30 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!userId) return;
 
+    /**
+     * An event named a conversation our cached lists don't contain, so those
+     * lists are stale — refetch them.
+     *
+     * `dm.created` / `channel.added` are the intended way a new conversation
+     * appears, but they're single-shot and best-effort (NOTIFY is at-most-once,
+     * and the socket may be reconnecting or the server cold-starting), and
+     * `bumpChannelUnread` is a SILENT no-op for an id it can't find. Without
+     * this, one missed structural event meant the conversation stayed invisible
+     * until a full page reload: the bump landed on nothing, the toast's "View"
+     * dead-ended on "Channel not found", and nothing else refetches these lists.
+     *
+     * Only when at least one list is already cached: for a workspace the user
+     * has never opened there's nothing to heal, and the mount fetch gets it.
+     */
+    const healUnknownConversation = (workspaceId: string, channelId: string): void => {
+      const channels = qc.getQueryData<ChannelDTO[]>(channelsKey(workspaceId));
+      const dms = qc.getQueryData<DirectMessageDTO[]>(dmsKey(workspaceId));
+      if (channels === undefined && dms === undefined) return;
+      if (hasConversation(channels, channelId) || hasConversation(dms, channelId)) return;
+      qc.invalidateQueries({ queryKey: channelsKey(workspaceId) });
+      qc.invalidateQueries({ queryKey: dmsKey(workspaceId) });
+    };
+
     const offEvent = client.onEvent((event) => {
       if (event.kind === "unread.bump") {
         if (!firstSeen(`u:${event.channelId}:${event.updatedSeq}`)) return;
@@ -77,6 +102,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         qc.setQueryData<DirectMessageDTO[]>(dmsKey(event.workspaceId), (l) =>
           bumpChannelUnread(l, event.channelId),
         );
+        // …unless it lives in NEITHER, in which case the bump just hit nothing.
+        healUnknownConversation(event.workspaceId, event.channelId);
         // Cross-workspace roll-up (dashboard / switcher badges).
         qc.setQueryData<NotificationSummary>(notificationsSummaryKey, (s) =>
           s ? bumpWorkspaceUnread(s, event.workspaceId, 1) : s,
@@ -95,6 +122,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         qc.setQueryData<NotificationSummary>(notificationsSummaryKey, (s) =>
           s ? addNotificationToSummary(s, n.workspaceId) : s,
         );
+        // The toast's "View" resolves the conversation from these lists, so heal
+        // them too — otherwise clicking it lands on "Channel not found".
+        healUnknownConversation(n.workspaceId, n.channelId);
 
         // Global toast — fires anywhere in the app (the provider is app-wide).
         toast(n.actorName, {
@@ -152,6 +182,16 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (status === "open" && reconnected) {
         qc.invalidateQueries({ queryKey: notificationsSummaryKey });
         qc.invalidateQueries({ queryKey: notificationsKey });
+        // The conversation lists too: structural events (`dm.created`,
+        // `channel.added`/`removed`) are single-shot, so anything that happened
+        // while we were down is lost unless we reconcile here. Only ACTIVE
+        // queries refetch, so in practice this is one request for the workspace
+        // the user is actually looking at.
+        qc.invalidateQueries({
+          predicate: (q) =>
+            q.queryKey[0] === "ws" &&
+            (q.queryKey[2] === "dms" || q.queryKey[2] === "channels"),
+        });
       }
     });
 
