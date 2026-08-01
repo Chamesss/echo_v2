@@ -10,6 +10,7 @@
     "dev:front": "bun run --filter echo-front dev",
     "db:migrate": "bun run --filter echo-server db:migrate",
     "db:studio": "bun run --filter echo-server db:studio",
+    "auth:studio": "bun run --filter echo-server auth:studio",
     "build": "bun run --filter echo-front build",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck"
