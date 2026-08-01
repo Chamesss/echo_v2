@@ -35,6 +35,10 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
 
   const lastClock = useRef(channelLastSeq);
   const catchingUp = useRef(false);
+  // A gap detected WHILE a catch-up is running. It can't be served by the pass
+  // already in flight — that request was issued before the newer message
+  // existed — so it's remembered and drains after, rather than being dropped.
+  const catchUpQueued = useRef(false);
 
   const key = messagesKey(workspace.id, channelId);
 
@@ -54,22 +58,43 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
     // intentionally keyed on channelId only
   }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * Pull everything after `lastClock` from the authoritative sequence.
+   *
+   * Concurrent callers COALESCE rather than cancel. Dropping an overlapping
+   * request looks safe — "a catch-up is already running, it'll pick this up" —
+   * but it can't: a burst of messages produces gaps while the first fetch is
+   * still in flight, and that fetch was issued before those messages existed.
+   * Discarding them left a permanent hole in the timeline, which in turn froze
+   * the reader's cursor below the newest message and stopped "Seen by" from ever
+   * appearing. So a request that arrives mid-flight sets a flag and the loop
+   * runs again — repeating until a pass completes with nothing new queued.
+   */
   const runCatchUp = useCallback(async () => {
-    if (catchingUp.current) return;
+    if (catchingUp.current) {
+      catchUpQueued.current = true;
+      return;
+    }
     catchingUp.current = true;
     try {
-      let done = false;
-      while (!done) {
-        const messages = await fetchCatchUp(workspace.id, channelId, lastClock.current, CATCHUP_LIMIT);
-        if (messages.length === 0) break;
-        qc.setQueryData<EchoMessage[]>(key, (old) =>
-          messages.reduce((acc, m) => mergeMessage(acc, m, true), old ?? []),
-        );
-        lastClock.current = messages.reduce((max, m) => Math.max(max, m.updatedSeq), lastClock.current);
-        if (messages.length < CATCHUP_LIMIT) done = true;
-      }
+      do {
+        // Cleared BEFORE the pass: anything that arrives from here on is not
+        // covered by it and must queue another round.
+        catchUpQueued.current = false;
+        let done = false;
+        while (!done) {
+          const messages = await fetchCatchUp(workspace.id, channelId, lastClock.current, CATCHUP_LIMIT);
+          if (messages.length === 0) break;
+          qc.setQueryData<EchoMessage[]>(key, (old) =>
+            messages.reduce((acc, m) => mergeMessage(acc, m, true), old ?? []),
+          );
+          lastClock.current = messages.reduce((max, m) => Math.max(max, m.updatedSeq), lastClock.current);
+          if (messages.length < CATCHUP_LIMIT) done = true;
+        }
+      } while (catchUpQueued.current);
     } finally {
       catchingUp.current = false;
+      catchUpQueued.current = false;
     }
   }, [qc, key, workspace.id, channelId]);
 
