@@ -9,6 +9,7 @@ import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-wor
 import { useAttachmentUploads } from "@/features/attachments/api/use-upload-attachment";
 import { AttachmentPreviewTile } from "@/features/attachments/components/AttachmentPreviewTile";
 import { useSendMessage } from "../api/use-messages";
+import { useTypingEmitter } from "../realtime/use-typing";
 
 const MAX_TEXTAREA_PX = 200;
 
@@ -24,6 +25,7 @@ export function MessageComposer({ channelId }: { channelId: string }) {
   const { data: session } = useSession();
   const send = useSendMessage(workspace.id, channelId, session?.user.id ?? "");
   const uploads = useAttachmentUploads(workspace.id, channelId);
+  const typing = useTypingEmitter(channelId);
   const [body, setBody] = useState("");
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -61,6 +63,7 @@ export function MessageComposer({ channelId }: { channelId: string }) {
 
     setBody("");
     uploads.clear();
+    typing.stop(); // clear everyone else's indicator now, not after their TTL
     if (textRef.current) textRef.current.style.height = "auto";
     send.mutate(
       { body: body.trim(), attachments, optimisticAttachments },
@@ -124,6 +127,10 @@ export function MessageComposer({ channelId }: { channelId: string }) {
           onChange={(e) => {
             setBody(e.target.value);
             autoGrow();
+            // Emptying the box is a stop signal — otherwise deleting a draft
+            // leaves you "typing" for the rest of the receivers' TTL.
+            if (e.target.value.trim()) typing.onInput();
+            else typing.stop();
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

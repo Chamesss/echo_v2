@@ -10,6 +10,7 @@ import { corsOrigins } from "../../config/env.js";
 import { logger } from "../../shared/logger/logger.js";
 import { assertChannelAccess } from "../../modules/channels/channels.service.js";
 import { hub } from "./hub.js";
+import * as presence from "./presence.js";
 import { WS_CLOSE } from "./protocol.js";
 import type {
   ClientFrame,
@@ -54,6 +55,32 @@ const HEARTBEAT_MS = 30_000;
 
 /** Frames a socket may send before auth resolves, past which it is hung up on. */
 const PRE_AUTH_FRAME_LIMIT = 32;
+
+/**
+ * Typing frames are the only thing a client pushes that isn't a subscription,
+ * and every accepted one becomes a `pg_notify` round-trip. A well-behaved client
+ * sends one per 3s (see `use-typing.ts`), so this is abuse protection rather than
+ * fairness — a fixed window is plenty. Keyed by socket in a WeakMap so the quota
+ * is collected with the connection.
+ */
+const TYPING_WINDOW_MS = 5_000;
+const TYPING_MAX_PER_WINDOW = 6;
+const typingQuota = new WeakMap<
+  WebSocket,
+  { windowStart: number; count: number }
+>();
+
+function allowTyping(ws: WebSocket): boolean {
+  const now = Date.now();
+  const quota = typingQuota.get(ws);
+  if (!quota || now - quota.windowStart > TYPING_WINDOW_MS) {
+    typingQuota.set(ws, { windowStart: now, count: 1 });
+    return true;
+  }
+  if (quota.count >= TYPING_MAX_PER_WINDOW) return false;
+  quota.count += 1;
+  return true;
+}
 
 export function attachRealtimeServer(httpServer: Server): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -113,10 +140,18 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
 
   wss.on("connection", (ws: WebSocket, info: ConnectionInfo) => {
     if (info.role === "user") {
-      hub.addUserSocket(ws, { userId: info.userId });
+      presence.onUserConnected(
+        info.userId,
+        hub.addUserSocket(ws, { userId: info.userId }),
+      );
+      // hub.addUserSocket(ws, { userId: info.userId });
       ws.on("message", (data) => void onUserMessage(ws, data.toString()));
-      ws.on("close", () => hub.removeUserSocket(ws));
-      ws.on("error", () => hub.removeUserSocket(ws));
+
+      const detach = () =>
+        presence.onUserDisconnected(info.userId, hub.removeUserSocket(ws));
+
+      ws.on("close", detach);
+      ws.on("error", detach);
       return;
     }
 
@@ -247,6 +282,27 @@ async function onMessage(
         }
       }
       return send(ws, { t: "subscribed", channelIds: granted });
+    }
+
+    case "typing": {
+      // Authorization is already settled: `ctx.channels` only ever contains
+      // channels this socket passed `assertChannelAccess` for in the `subscribe`
+      // case above. So this is a Set.has() — re-running the DB check here would
+      // put a query on every throttle tick, which is the whole reason typing
+      // isn't a REST endpoint.
+      const socketCtx = hub.contextFor(ws);
+      if (!socketCtx || !socketCtx.channels.has(frame.channelId)) return;
+      if (!allowTyping(ws)) return;
+      // Ephemeral: published like any channel event (so it fans out to that
+      // conversation's subscribers on every instance) but persisted nowhere and
+      // consuming no sequence.
+      await hub.publish(socketCtx.workspaceId, {
+        kind: "typing",
+        channelId: frame.channelId,
+        userId: socketCtx.userId,
+        state: frame.state,
+      });
+      return;
     }
 
     default:

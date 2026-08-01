@@ -31,6 +31,12 @@ vi.mock("../api/use-notifications", () => ({
   useMarkRead: () => ({ mutate: markRead }),
 }));
 
+// Presence too: each row resolves its own, keyed by the notification's
+// workspace (the bell is app-wide, so there's no single workspace to read from).
+vi.mock("@/features/members/api/use-presence", () => ({
+  usePresence: () => ({ data: new Set(["u2"]) }),
+}));
+
 import { NotificationBell } from "./NotificationBell";
 
 function renderBell() {
@@ -68,5 +74,16 @@ describe("NotificationBell", () => {
     await user.click(screen.getByText("Bob"));
 
     expect(markRead).toHaveBeenCalledWith({ ids: ["n1"] });
+  });
+
+  it("shows the actor's presence on their avatar", async () => {
+    const user = userEvent.setup();
+    renderBell();
+
+    await user.click(screen.getByLabelText("Notifications"));
+
+    // "u2" is online per the mock above, and the row asks for presence in the
+    // notification's OWN workspace — not whichever one happens to be open.
+    expect(screen.getByTestId("presence-dot")).toHaveAttribute("data-online", "true");
   });
 });

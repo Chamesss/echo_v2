@@ -18,11 +18,21 @@ export interface MessageRowProps {
   isOwn: boolean;
   authorName: string;
   authorImage: string | null;
+  /** Presence dot; `undefined` (the default) renders none. Resolved upstream. */
+  authorOnline?: boolean;
   onEdit: (messageId: string, payload: EditSavePayload) => void;
   onDelete: (messageId: string) => void;
 }
 
-export function MessageRow({ message, isOwn, authorName, authorImage, onEdit, onDelete }: MessageRowProps) {
+export function MessageRow({
+  message,
+  isOwn,
+  authorName,
+  authorImage,
+  authorOnline,
+  onEdit,
+  onDelete,
+}: MessageRowProps) {
   const [editing, setEditing] = useState(false);
 
   // The author left the workspace → body withheld by the server (reversible).
@@ -40,7 +50,12 @@ export function MessageRow({ message, isOwn, authorName, authorImage, onEdit, on
         message.pending && "opacity-60",
       )}
     >
-      <UserAvatar name={authorName} image={authorImage} className="mt-0.5 h-8 w-8" />
+      <UserAvatar
+        name={authorName}
+        image={authorImage}
+        className="mt-0.5 h-8 w-8"
+        online={authorOnline}
+      />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">

@@ -134,6 +134,17 @@ export class WorkspaceRealtime {
     this.sendFrame({ t: "unsubscribe", channelIds: [channelId] });
   }
 
+  /**
+   * Ephemeral typing signal — the only non-subscription frame we send (see the
+   * note on `ClientFrame`: it isn't a write, so it doesn't belong on the REST
+   * path that owns durability). `sendFrame` no-ops when the socket isn't OPEN,
+   * which is exactly right here: a tick during a reconnect is simply dropped,
+   * and the receiver's TTL cleans up after it.
+   */
+  typing(channelId: string, state: "start" | "stop"): void {
+    this.sendFrame({ t: "typing", channelId, state });
+  }
+
   onEvent(listener: EventListener): () => void {
     this.eventListeners.add(listener);
     return () => this.eventListeners.delete(listener);

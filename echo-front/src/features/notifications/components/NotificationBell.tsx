@@ -5,6 +5,7 @@ import type { NotificationWire } from "@server/infrastructure/realtime/protocol"
 import { paths } from "@/lib/paths";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
+import { usePresence } from "@/features/members/api/use-presence";
 import {
   useMarkRead,
   useMarkSeen,
@@ -105,7 +106,12 @@ export function NotificationBell() {
                     !n.readAt && "bg-accent/40",
                   )}
                 >
-                  <Avatar name={n.actorName} image={n.actorImage} />
+                  <Avatar
+                    name={n.actorName}
+                    image={n.actorImage}
+                    workspaceId={n.workspaceId}
+                    userId={n.actorId}
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="font-medium text-foreground">{n.actorName}</span>{" "}
                     <span className="text-muted-foreground">
@@ -128,8 +134,34 @@ export function NotificationBell() {
   );
 }
 
-function Avatar({ name, image }: { name: string; image: string | null }) {
-  return <UserAvatar name={name} image={image} maxInitials={1} className="size-7 text-xs" />;
+/**
+ * Presence is per-workspace but the bell is app-wide (it renders on the
+ * dashboard too, outside any workspace context) and each item can come from a
+ * different workspace — so the query lives HERE, per row, keyed by the
+ * notification's own `workspaceId`. React Query dedupes by key, so rows from the
+ * same workspace share one request, and the tray only mounts when it's open.
+ */
+function Avatar({
+  name,
+  image,
+  workspaceId,
+  userId,
+}: {
+  name: string;
+  image: string | null;
+  workspaceId: string;
+  userId: string;
+}) {
+  const { data: online } = usePresence(workspaceId);
+  return (
+    <UserAvatar
+      name={name}
+      image={image}
+      maxInitials={1}
+      className="size-7 text-xs"
+      online={online ? online.has(userId) : undefined}
+    />
+  );
 }
 
 /** Compact relative time ("just now", "5m", "3h", "2d") with a date fallback. */

@@ -63,8 +63,9 @@ export class RealtimeHub {
     let entry = this.workspaces.get(ctx.workspaceId);
     if (!entry) {
       const channelSubs = new Map<string, Set<WebSocket>>();
-      const unsubscribe = this.bus.subscribe(workspaceNotifyChannel(ctx.workspaceId), (event) =>
-        this.deliverLocal(ctx.workspaceId, event as RealtimeEvent),
+      const unsubscribe = this.bus.subscribe(
+        workspaceNotifyChannel(ctx.workspaceId),
+        (event) => this.deliverLocal(ctx.workspaceId, event as RealtimeEvent),
       );
       entry = { sockets: new Set(), channelSubs, unsubscribe };
       this.workspaces.set(ctx.workspaceId, entry);
@@ -73,31 +74,36 @@ export class RealtimeHub {
   }
 
   /** Register an awareness (user) socket — receives the user's `UserEvent`s only. */
-  addUserSocket(ws: WebSocket, ctx: { userId: string }): void {
+  addUserSocket(ws: WebSocket, ctx: { userId: string }): boolean {
     this.userOf.set(ws, ctx.userId);
     let entry = this.userSockets.get(ctx.userId);
+    const isFirst = !entry;
     if (!entry) {
-      const unsubscribe = this.bus.subscribe(userNotifyChannel(ctx.userId), (event) =>
-        this.deliverUser(ctx.userId, event as UserEvent),
+      const unsubscribe = this.bus.subscribe(
+        userNotifyChannel(ctx.userId),
+        (event) => this.deliverUser(ctx.userId, event as UserEvent),
       );
       entry = { sockets: new Set(), unsubscribe };
       this.userSockets.set(ctx.userId, entry);
     }
     entry.sockets.add(ws);
+    return isFirst;
   }
 
   /** Tear down an awareness socket; releases the user LISTEN if it was the last. */
-  removeUserSocket(ws: WebSocket): void {
+  removeUserSocket(ws: WebSocket): boolean {
     const userId = this.userOf.get(ws);
     this.userOf.delete(ws);
-    if (!userId) return;
+    if (!userId) return false;
     const entry = this.userSockets.get(userId);
-    if (!entry) return;
+    if (!entry) return false;
     entry.sockets.delete(ws);
     if (entry.sockets.size === 0) {
       entry.unsubscribe();
       this.userSockets.delete(userId);
+      return true;
     }
+    return false;
   }
 
   /** Subscribe a socket to a channel (caller has already authorized access). */
@@ -147,6 +153,29 @@ export class RealtimeHub {
     }
   }
 
+  /** Does this user have a live awareness socket ON THIS INSTANCE? */
+  isOnline(userId: string): boolean {
+    return (this.userSockets.get(userId)?.sockets.size ?? 0) > 0;
+  }
+
+  /** Every user with a live awareness socket ON THIS INSTANCE. */
+  onlineUserIds(): string[] {
+    return [...this.userSockets.keys()];
+  }
+
+  async publishToWorkspaces(
+    workspaceIds: readonly string[],
+    event: RealtimeEvent,
+  ): Promise<void> {
+    if (workspaceIds.length === 0) return;
+    await this.bus.publishMany(
+      workspaceIds.map((id) => ({
+        channel: workspaceNotifyChannel(id),
+        event,
+      })),
+    );
+  }
+
   contextFor(ws: WebSocket): SocketContext | undefined {
     return this.contexts.get(ws);
   }
@@ -169,10 +198,15 @@ export class RealtimeHub {
    * Publish many user-scoped events in a single backplane round-trip — the
    * message fan-out path, where one message notifies every other member.
    */
-  async publishToUsers(entries: ReadonlyArray<{ userId: string; event: UserEvent }>): Promise<void> {
+  async publishToUsers(
+    entries: ReadonlyArray<{ userId: string; event: UserEvent }>,
+  ): Promise<void> {
     if (entries.length === 0) return;
     await this.bus.publishMany(
-      entries.map((e) => ({ channel: userNotifyChannel(e.userId), event: e.event })),
+      entries.map((e) => ({
+        channel: userNotifyChannel(e.userId),
+        event: e.event,
+      })),
     );
   }
 
@@ -184,7 +218,11 @@ export class RealtimeHub {
     for (const ws of entry.sockets) {
       if (ws.readyState === 1) {
         ws.send(data, (err) => {
-          if (err) logger.warn({ err: err.message }, "realtime: failed to send user frame");
+          if (err)
+            logger.warn(
+              { err: err.message },
+              "realtime: failed to send user frame",
+            );
         });
       }
     }
@@ -206,7 +244,8 @@ export class RealtimeHub {
       // 1 === WebSocket.OPEN; avoid importing the value just for the enum.
       if (ws.readyState === 1) {
         ws.send(data, (err) => {
-          if (err) logger.warn({ err: err.message }, "realtime: failed to send frame");
+          if (err)
+            logger.warn({ err: err.message }, "realtime: failed to send frame");
         });
       }
     }

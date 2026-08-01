@@ -1,6 +1,8 @@
 import { Hash, Lock } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { useSession } from "@/lib/auth-client";
+import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
+import { usePresence } from "@/features/members/api/use-presence";
 import type { ChannelDTO } from "../api/use-channels";
 import type { DirectMessageDTO } from "../api/use-dms";
 
@@ -65,11 +67,16 @@ function ChannelIntro({ channel }: { channel: ChannelDTO }) {
 
 function DmIntro({ channel }: { channel: DirectMessageDTO }) {
   const { data: session } = useSession();
+  const workspace = useCurrentWorkspace();
+  const { data: online } = usePresence(workspace.id);
   const myId = session?.user.id;
   const others = channel.participants.filter((p) => p.userId !== myId);
   const people = others.length ? others : channel.participants;
   const isGroup = channel.type === "group" || people.length > 1;
   const names = people.map((p) => p.name).join(", ");
+  // Only a 1:1 gets a dot — the avatars below overlap (`-space-x-2`), so on a
+  // group each dot would sit under the next person's face.
+  const solo = people.length === 1;
 
   return (
     <>
@@ -81,6 +88,7 @@ function DmIntro({ channel }: { channel: DirectMessageDTO }) {
             image={p.image}
             className="size-10 ring-2 ring-background"
             priority
+            online={solo && online ? online.has(p.userId) : undefined}
           />
         ))}
       </div>

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/auth-client";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
 import { useDirectory } from "@/features/members/api/use-directory";
+import { usePresence } from "@/features/members/api/use-presence";
 import {
   useDeleteMessage,
   useEditMessage,
@@ -35,6 +36,7 @@ export function MessageList({
   const { data: session } = useSession();
   const myId = session?.user.id;
   const { data: directory } = useDirectory(workspace.id);
+  const { data: online } = usePresence(workspace.id);
 
   const edit = useEditMessage(workspace.id, channelId);
   const del = useDeleteMessage(workspace.id, channelId);
@@ -131,6 +133,13 @@ export function MessageList({
             m.authorActive === false
               ? null
               : (directory?.[m.authorId]?.image ?? m.authorImage ?? null)
+          }
+          // A departed member isn't in the roster, so they have no presence to
+          // show — same reason their avatar is blanked above.
+          authorOnline={
+            m.authorActive === false || !online
+              ? undefined
+              : online.has(m.authorId)
           }
           onEdit={(id, payload) =>
             edit.mutate(

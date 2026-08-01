@@ -13,6 +13,7 @@ import { useChannelStream } from "../realtime/use-channel-stream";
 import { ChannelSettingsDialog } from "./ChannelSettingsDialog";
 import { MessageComposer } from "./MessageComposer";
 import { MessageList } from "./MessageList";
+import { TypingIndicator } from "./TypingIndicator";
 
 /**
  * A single channel: header + live message timeline + composer.
@@ -141,6 +142,7 @@ function ChannelMessages({ channel }: { channel: ChannelDTO | DirectMessageDTO }
   return (
     <>
       <MessageList channel={channel} messages={messages} />
+      <TypingIndicator channelId={channel.id} />
       <MessageComposer channelId={channel.id} />
     </>
   );

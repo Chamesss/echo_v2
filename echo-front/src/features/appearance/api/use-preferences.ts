@@ -9,6 +9,12 @@ import {
 export const preferencesKey = ["preferences"] as const;
 
 /**
+ * Shared key for the update mutation, so each in-flight save can count its
+ * siblings via `isMutating` — see `useUpdatePreferences`.
+ */
+const updatePreferencesKey = ["preferences", "update"] as const;
+
+/**
  * The caller's appearance preferences.
  *
  * `enabled` is passed in rather than derived here so the provider can gate this
@@ -46,11 +52,23 @@ export function usePreferences(enabled: boolean) {
  * PARTIAL patch — sending only what changed is what stops a client from
  * clobbering preferences it doesn't know about (see the server's
  * `updatePreferences`).
+ *
+ * Only the LAST save may touch the cache once it settles. Clicking through
+ * themes quickly puts several requests in flight at once, and they can resolve
+ * out of order — so an earlier reply (or an earlier rollback snapshot) landing
+ * after a newer optimistic write would stomp it, and since the provider applies
+ * every cache write straight to <html>, that stomp is visible as the theme
+ * snapping back and then forward again. `isMutating` counts this mutation too,
+ * so "more than one" means a newer save is still pending and owns the result.
  */
 export function useUpdatePreferences() {
   const qc = useQueryClient();
+  const isSuperseded = () =>
+    qc.isMutating({ mutationKey: updatePreferencesKey }) > 1;
 
   return useMutation({
+    mutationKey: updatePreferencesKey,
+
     mutationFn: async (patch: Partial<AppearancePreferences>) => {
       const { preferences } = await apiFetch<{ preferences: unknown }>(
         "/api/preferences",
@@ -74,7 +92,9 @@ export function useUpdatePreferences() {
     },
 
     onError: (_err, _patch, context) => {
-      if (context?.previous) {
+      // `previous` is a snapshot from before THIS save; restoring it once a
+      // newer one has already written would undo that newer change too.
+      if (context?.previous && !isSuperseded()) {
         qc.setQueryData(preferencesKey, context.previous);
       }
     },
@@ -82,6 +102,7 @@ export function useUpdatePreferences() {
     // Server response is authoritative — it has merged the patch over whatever
     // was stored, which may include fields this client never sent.
     onSuccess: (preferences) => {
+      if (isSuperseded()) return;
       qc.setQueryData(preferencesKey, preferences);
     },
   });

@@ -11,6 +11,7 @@ import {
   type MemberDTO,
 } from "../api/use-members";
 import { useInvites } from "../api/use-invites";
+import { usePresence } from "../api/use-presence";
 
 /**
  * Workspace member roster. Every member sees the list; admins additionally get
@@ -22,6 +23,7 @@ export function MembersTable({ workspaceId, canManage }: { workspaceId: string; 
   const currentUserId = session?.user.id;
 
   const { data: members, isPending } = useMembers(workspaceId);
+  const { data: online } = usePresence(workspaceId);
   // Pending (invited-but-not-joined) people show as muted "Invited" rows. The
   // endpoint is admin-only, so only fetch/show them when the caller can manage.
   const { data: invites } = useInvites(workspaceId, canManage);
@@ -72,7 +74,12 @@ export function MembersTable({ workspaceId, canManage }: { workspaceId: string; 
                 <tr key={m.userId} className="align-middle">
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-3">
-                      <UserAvatar name={m.name || m.email} image={m.image} className="h-8 w-8" />
+                      <UserAvatar
+                        name={m.name || m.email}
+                        image={m.image}
+                        className="h-8 w-8"
+                        online={online ? online.has(m.userId) : undefined}
+                      />
                       <div className="min-w-0">
                         <div className="truncate font-medium text-foreground">
                           {m.name || "—"}

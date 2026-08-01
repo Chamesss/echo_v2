@@ -87,18 +87,45 @@ export interface MessageWire {
 
 /**
  * A channel event. Message create/edit/delete carry `updatedSeq` and drive the
- * client's gap detection; `read` is an idempotent read-state broadcast that does
- * NOT consume the clock (so it never triggers a false gap).
+ * client's gap detection; `read` and `typing` are broadcasts that do NOT consume
+ * the clock (so they never trigger a false gap) — they carry no `updatedSeq` at
+ * all, and the client's stream must return on them BEFORE it reads one.
  *
  * Every variant carries `channelId` — that's the discriminator the hub and the
  * client use to tell channel events apart from workspace events (which have no
  * channel). See `isChannelEvent`.
  */
 export type ChannelEvent =
-  | { kind: "message.created"; channelId: string; updatedSeq: number; message: MessageWire }
-  | { kind: "message.updated"; channelId: string; updatedSeq: number; message: MessageWire }
-  | { kind: "message.deleted"; channelId: string; updatedSeq: number; message: MessageWire }
-  | { kind: "channel.read"; channelId: string; userId: string; lastReadSeq: number };
+  | {
+      kind: "message.created";
+      channelId: string;
+      updatedSeq: number;
+      message: MessageWire;
+    }
+  | {
+      kind: "message.updated";
+      channelId: string;
+      updatedSeq: number;
+      message: MessageWire;
+    }
+  | {
+      kind: "message.deleted";
+      channelId: string;
+      updatedSeq: number;
+      message: MessageWire;
+    }
+  | {
+      kind: "channel.read";
+      channelId: string;
+      userId: string;
+      lastReadSeq: number;
+    }
+  | {
+      kind: "typing";
+      channelId: string;
+      userId: string;
+      state: "start" | "stop";
+    };
 
 /**
  * A workspace-scoped event — roster + channel-lifecycle changes that aren't tied
@@ -132,7 +159,8 @@ export type WorkspaceEvent =
   | { kind: "channel.updated"; channelId: string }
   | { kind: "channel.deleted"; channelId: string }
   | { kind: "workspace.updated" }
-  | { kind: "directory.updated" };
+  | { kind: "directory.updated" }
+  | { kind: "presence.changed"; userId: string; online: boolean };
 
 /** Anything that travels over the WORKSPACE socket + backplane: channel- or workspace-scoped. */
 export type RealtimeEvent = ChannelEvent | WorkspaceEvent;
@@ -148,6 +176,7 @@ const CHANNEL_EVENT_KINDS = new Set<RealtimeEvent["kind"]>([
   "message.updated",
   "message.deleted",
   "channel.read",
+  "typing",
 ]);
 
 /** Narrow a realtime event to a channel (subscriber-scoped) event vs. a workspace-wide one. */
@@ -238,10 +267,21 @@ export type UserServerFrame =
   | { t: "pong" }
   | { t: "error"; message: string };
 
-/** Frames a client sends to the WORKSPACE server. (Writes go over REST, never here.) */
+/**
+ * Frames a client sends to the WORKSPACE server. (Writes go over REST, never here.)
+ *
+ * `typing` is not an exception to that rule, because it isn't a write: nothing is
+ * persisted, no sequence is consumed, no notification fires. It rides the socket
+ * rather than a REST endpoint because the socket already knows who you are and
+ * which channels you're authorized for (`SocketContext.channels`, populated by
+ * the authorized `subscribe` below) — so a tick costs zero queries, where REST
+ * would cost three (session lookup, workspace load, membership check) on every
+ * throttle tick.
+ */
 export type ClientFrame =
   | { t: "subscribe"; channelIds: string[] }
   | { t: "unsubscribe"; channelIds: string[] }
+  | { t: "typing"; channelId: string; state: "start" | "stop" }
   | { t: "ping" };
 
 /** Frames a client sends over the USER socket (heartbeat only — no subscriptions). */

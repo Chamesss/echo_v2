@@ -79,6 +79,15 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
       // only reconciles its own channel's message timeline.
       if (!isChannelEvent(event) || event.channelId !== channelId) return;
 
+      if (event.kind === "typing") {
+        // Ephemeral, and it carries no `updatedSeq` — so it must never reach the
+        // clock logic below, where `undefined` slips past BOTH comparisons
+        // (`undefined <= n` and `undefined > n` are each false) and hands
+        // `mergeMessage` an undefined message. Owned by `useTypingParticipants`;
+        // there is nothing to reconcile here.
+        return;
+      }
+
       if (event.kind === "channel.read") {
         // Live receipts: record this member's cursor for the open channel.
         qc.setQueryData<ChannelReadDTO[]>(readsKey(workspace.id, channelId), (old) =>

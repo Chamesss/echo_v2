@@ -1,21 +1,25 @@
-import { Router } from 'express';
-import { validate } from '../../shared/middleware/validate.js';
-import { asyncHandler } from '../../shared/middleware/async-handler.js';
-import { loadWorkspace } from '../../shared/middleware/load-workspace.js';
-import { requireWorkspaceRole } from '../../shared/middleware/require-workspace-role.js';
-import { channelsRouter } from '../channels/channels.routes.js';
-import { dmsRouter } from '../channels/dm.routes.js';
-import { membersRouter } from '../members/members.routes.js';
-import { invitesRouter } from '../members/invites.routes.js';
-import { leaveWorkspaceController, getDirectoryController } from '../members/members.controller.js';
-import { createWorkspaceBody, updateWorkspaceBody } from './workspaces.dto.js';
+import { Router } from "express";
+import { validate } from "../../shared/middleware/validate.js";
+import { asyncHandler } from "../../shared/middleware/async-handler.js";
+import { loadWorkspace } from "../../shared/middleware/load-workspace.js";
+import { requireWorkspaceRole } from "../../shared/middleware/require-workspace-role.js";
+import { channelsRouter } from "../channels/channels.routes.js";
+import { dmsRouter } from "../channels/dm.routes.js";
+import { membersRouter } from "../members/members.routes.js";
+import { invitesRouter } from "../members/invites.routes.js";
+import {
+  leaveWorkspaceController,
+  getDirectoryController,
+  getPresenceController,
+} from "../members/members.controller.js";
+import { createWorkspaceBody, updateWorkspaceBody } from "./workspaces.dto.js";
 import {
   createWorkspaceController,
   deleteWorkspaceController,
   getWorkspaceController,
   listMyWorkspacesController,
   updateWorkspaceController,
-} from './workspaces.controller.js';
+} from "./workspaces.controller.js";
 
 /**
  * Workspace route table.
@@ -39,36 +43,61 @@ import {
  */
 export const workspacesRouter = Router();
 
-workspacesRouter.get('/', asyncHandler(listMyWorkspacesController));
+workspacesRouter.get("/", asyncHandler(listMyWorkspacesController));
 
 workspacesRouter.post(
-  '/',
+  "/",
   validate({ body: createWorkspaceBody }),
   asyncHandler(createWorkspaceController),
 );
 
-workspacesRouter.use('/:workspaceId', loadWorkspace);
+workspacesRouter.use("/:workspaceId", loadWorkspace);
 
-workspacesRouter.get('/:workspaceId', getWorkspaceController);
+// Cached member directory (name/avatar) — any member may read.
+workspacesRouter.get(
+  "/:workspaceId/directory",
+  asyncHandler(getDirectoryController),
+);
+
+// Who's online right now — same audience as the directory.
+workspacesRouter.get(
+  "/:workspaceId/presence",
+  asyncHandler(getPresenceController),
+);
+
+workspacesRouter.get("/:workspaceId", getWorkspaceController);
 
 // Rename is admin-only; delete is owner-only (checked inside the controller).
 workspacesRouter.patch(
-  '/:workspaceId',
-  requireWorkspaceRole('admin'),
+  "/:workspaceId",
+  requireWorkspaceRole("admin"),
   validate({ body: updateWorkspaceBody }),
   asyncHandler(updateWorkspaceController),
 );
-workspacesRouter.delete('/:workspaceId', asyncHandler(deleteWorkspaceController));
+workspacesRouter.delete(
+  "/:workspaceId",
+  asyncHandler(deleteWorkspaceController),
+);
 
 // Cached member directory (name/avatar) — any member may read.
-workspacesRouter.get('/:workspaceId/directory', asyncHandler(getDirectoryController));
+workspacesRouter.get(
+  "/:workspaceId/directory",
+  asyncHandler(getDirectoryController),
+);
 
 // Any member can leave (the owner can't — enforced in the service).
-workspacesRouter.post('/:workspaceId/leave', asyncHandler(leaveWorkspaceController));
+workspacesRouter.post(
+  "/:workspaceId/leave",
+  asyncHandler(leaveWorkspaceController),
+);
 
 // Channels, members, and invites all inherit the `loadWorkspace` membership
 // check above; member/invite mutations add their own `requireWorkspaceRole`.
-workspacesRouter.use('/:workspaceId/channels', channelsRouter);
-workspacesRouter.use('/:workspaceId/dms', dmsRouter);
-workspacesRouter.use('/:workspaceId/members', membersRouter);
-workspacesRouter.use('/:workspaceId/invites', invitesRouter);
+workspacesRouter.use("/:workspaceId/channels", channelsRouter);
+workspacesRouter.use("/:workspaceId/dms", dmsRouter);
+workspacesRouter.use("/:workspaceId/members", membersRouter);
+workspacesRouter.use("/:workspaceId/invites", invitesRouter);
+workspacesRouter.get(
+  "/:workspaceId/directory",
+  asyncHandler(getDirectoryController),
+);

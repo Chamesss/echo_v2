@@ -3,7 +3,10 @@ import { NavLink } from "react-router";
 import { MessageSquare, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { paths } from "@/lib/paths";
+import { useSession } from "@/lib/auth-client";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
+import { usePresence } from "@/features/members/api/use-presence";
 import { useDirectMessages } from "../api/use-dms";
 import { NewDmDialog } from "./NewDmDialog";
 
@@ -14,7 +17,9 @@ import { NewDmDialog } from "./NewDmDialog";
  */
 export function DmList() {
   const workspace = useCurrentWorkspace();
+  const { data: session } = useSession();
   const { data: dms = [], isPending } = useDirectMessages(workspace.id);
+  const { data: online } = usePresence(workspace.id);
   const [picking, setPicking] = useState(false);
 
   return (
@@ -40,7 +45,15 @@ export function DmList() {
           No direct messages.
         </p>
       ) : (
-        dms.map((dm) => (
+        dms.map((dm) => {
+          // A 1:1 has exactly one other person → show their face and their
+          // status. A group has several, which don't collapse into one dot, so
+          // it keeps the generic icon.
+          const others = dm.participants.filter(
+            (p) => p.userId !== session?.user.id,
+          );
+          const solo = others.length === 1 ? others[0]! : null;
+          return (
           <NavLink
             key={dm.id}
             to={paths.workspaceChannel(workspace.id, dm.id)}
@@ -55,7 +68,17 @@ export function DmList() {
           >
             {({ isActive }) => (
               <>
-                <MessageSquare className="size-4 shrink-0" />
+                {solo ? (
+                  <UserAvatar
+                    name={solo.name}
+                    image={solo.image}
+                    className="size-6"
+                    maxInitials={1}
+                    online={online ? online.has(solo.userId) : undefined}
+                  />
+                ) : (
+                  <MessageSquare className="size-4 shrink-0" />
+                )}
                 <span className="truncate">{dm.name || "Direct message"}</span>
                 {/* No badge for the DM you're viewing — it has no unread to you. */}
                 {dm.unread > 0 && !isActive && (
@@ -66,7 +89,8 @@ export function DmList() {
               </>
             )}
           </NavLink>
-        ))
+          );
+        })
       )}
 
       {picking && <NewDmDialog onClose={() => setPicking(false)} />}

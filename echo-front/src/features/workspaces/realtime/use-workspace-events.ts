@@ -10,7 +10,8 @@ import { useCurrentWorkspace } from "@/features/workspaces/context/workspace-con
 import { useRealtime } from "@/features/channels/realtime/realtime-context";
 import { myWorkspacesKey } from "@/features/workspaces/api/use-my-workspaces";
 import { workspaceKey } from "@/features/workspaces/api/use-workspace";
-import { directoryKey, invitesKey, membersKey } from "@/features/members/api/keys";
+import { directoryKey, invitesKey, membersKey, presenceKey } from "@/features/members/api/keys";
+import type { PresenceResponse } from "@/features/members/api/use-presence";
 import { channelsKey, channelMembersKey } from "@/features/channels/api/keys";
 import type { EchoMessage } from "@/features/channels/realtime/message-cache";
 
@@ -53,6 +54,22 @@ export function useWorkspaceEvents() {
           // A member changed their name/avatar → re-read the directory so author
           // names/avatars refresh live across every open conversation.
           qc.invalidateQueries({ queryKey: directoryKey(workspaceId) });
+          break;
+        case "presence.changed":
+          // The one event here that PATCHES instead of invalidating. Everywhere
+          // else the event only says "something changed, re-read it" — but
+          // presence has no cheaper source than the event itself (refetching the
+          // whole snapshot because one person opened a tab would be absurd), and
+          // the payload is already the complete truth for that user.
+          qc.setQueryData<PresenceResponse>(presenceKey(workspaceId), (prev) => {
+            if (!prev) return prev; // not loaded yet; the first fetch will be current
+            if (prev.online.includes(event.userId) === event.online) return prev;
+            return {
+              online: event.online
+                ? [...prev.online, event.userId]
+                : prev.online.filter((id) => id !== event.userId),
+            };
+          });
           break;
 
         // ── Channel lifecycle ─────────────────────────────────────────────
@@ -110,6 +127,17 @@ export function useWorkspaceEvents() {
       }
     });
   }, [client, qc, navigate, workspaceId, myUserId]);
+
+  // Presence transitions that happened while the socket was down are gone —
+  // NOTIFY doesn't replay, and presence is the only cache here with no other
+  // refresh path (the rest re-read on their own mounts). Re-seed on reconnect.
+  useEffect(() => {
+    return client.onStatus((status, reconnected) => {
+      if (status === "open" && reconnected) {
+        qc.invalidateQueries({ queryKey: presenceKey(workspaceId) });
+      }
+    });
+  }, [client, qc, workspaceId]);
 }
 
 /**
