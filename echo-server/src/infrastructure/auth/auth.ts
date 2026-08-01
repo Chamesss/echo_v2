@@ -208,6 +208,7 @@ export const auth = betterAuth({
   session: {
     expiresIn: env.AUTH_SESSION_EXPIRES_DAYS * 24 * 60 * 60,
     updateAge: 24 * 60 * 60,
+    freshAge: 0,
     // cookieCache is intentionally OFF. A signed client-side session cache
     // keeps `getSession` returning a "valid" session for up to maxAge after the
     // session is revoked/expired server-side. That desynced the frontend
@@ -238,10 +239,10 @@ export const auth = betterAuth({
     window: 10,
     max: 100,
     customRules: {
-      "/sign-in/email": { window: 60, max: 5 },
-      "/sign-up/email": { window: 60 * 60, max: 3 },
-      "/request-password-reset": { window: 60 * 60, max: 3 },
-      "/two-factor/verify-totp": { window: 60, max: 10 },
+      "/sign-in/email": { window: 60, max: 20 },
+      "/sign-up/email": { window: 60 * 60, max: 20 },
+      "/request-password-reset": { window: 60 * 60, max: 20 },
+      "/two-factor/verify-totp": { window: 60, max: 20 },
     },
   },
 
