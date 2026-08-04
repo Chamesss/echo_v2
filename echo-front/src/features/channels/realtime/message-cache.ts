@@ -7,6 +7,13 @@ import type { AttachmentWire, MessageWire } from "@server/infrastructure/realtim
 export interface EchoMessage extends MessageWire {
   pending?: boolean;
   failed?: boolean;
+  /**
+   * The attachment refs this row was originally sent with. Kept on the optimistic
+   * row so a failed send can be retried EXACTLY — the rendered `attachments` are
+   * display wire objects (with preview URLs) and can't be replayed to the API.
+   * Only ever set on optimistic rows; the server row that replaces it drops it.
+   */
+  sendRefs?: { key: string; filename: string }[];
 }
 
 // Optimistic messages have no real seq yet; park them at the bottom (newest)
@@ -63,6 +70,7 @@ export function optimisticMessage(input: {
   authorId: string;
   body: string;
   attachments?: AttachmentWire[];
+  sendRefs?: { key: string; filename: string }[];
 }): EchoMessage {
   const now = new Date().toISOString();
   return {
@@ -80,5 +88,6 @@ export function optimisticMessage(input: {
     createdAt: now,
     updatedAt: null,
     pending: true,
+    sendRefs: input.sendRefs ?? [],
   };
 }

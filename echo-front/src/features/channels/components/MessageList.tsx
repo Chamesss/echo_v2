@@ -7,8 +7,10 @@ import { useDirectory } from "@/features/members/api/use-directory";
 import { usePresence } from "@/features/members/api/use-presence";
 import {
   useDeleteMessage,
+  useDiscardFailed,
   useEditMessage,
   useOlderMessages,
+  useRetrySend,
 } from "../api/use-messages";
 import { OPTIMISTIC_SEQ, type EchoMessage } from "../realtime/message-cache";
 import type { ChannelDTO } from "../api/use-channels";
@@ -40,6 +42,8 @@ export function MessageList({
 
   const edit = useEditMessage(workspace.id, channelId);
   const del = useDeleteMessage(workspace.id, channelId);
+  const retry = useRetrySend(workspace.id, channelId);
+  const discard = useDiscardFailed(workspace.id, channelId);
   const { loadOlder, isLoading, hasMore } = useOlderMessages(
     workspace.id,
     channelId,
@@ -150,6 +154,10 @@ export function MessageList({
           onDelete={(id) =>
             del.mutate(id, { onError: (err) => toast.error(err.message) })
           }
+          onRetry={(msg) =>
+            retry.mutate(msg, { onError: (err) => toast.error(err.message) })
+          }
+          onDiscard={discard}
         />
       ))}
 

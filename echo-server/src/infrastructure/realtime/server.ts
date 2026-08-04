@@ -57,6 +57,21 @@ const HEARTBEAT_MS = 30_000;
 const PRE_AUTH_FRAME_LIMIT = 32;
 
 /**
+ * Bytes an unauthenticated socket may buffer before auth resolves. The frame
+ * count alone isn't a bound — 32 frames can still be arbitrarily large — and
+ * these arrive from a peer we haven't identified yet.
+ */
+const PRE_AUTH_BYTE_LIMIT = 64 * 1024;
+
+/**
+ * Largest inbound frame we'll accept. The `ws` default is 100 MB; nothing this
+ * protocol accepts from a client comes close (the biggest is a `subscribe` with
+ * a list of uuids), and message bodies go over REST, which has its own 1mb JSON
+ * limit.
+ */
+const MAX_INBOUND_PAYLOAD_BYTES = 64 * 1024;
+
+/**
  * Typing frames are the only thing a client pushes that isn't a subscription,
  * and every accepted one becomes a `pg_notify` round-trip. A well-behaved client
  * sends one per 3s (see `use-typing.ts`), so this is abuse protection rather than
@@ -83,7 +98,10 @@ function allowTyping(ws: WebSocket): boolean {
 }
 
 export function attachRealtimeServer(httpServer: Server): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_INBOUND_PAYLOAD_BYTES,
+  });
   const alive = new WeakMap<WebSocket, boolean>();
 
   httpServer.on("upgrade", (req, socket, head) => {
@@ -106,12 +124,19 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
       // real handlers are attached; dropping them would silently lose the
       // initial channel subscriptions until the next reconnect.
       const pending: string[] = [];
+      let pendingBytes = 0;
       const bufferFrame = (data: unknown): void => {
         if (pending.length >= PRE_AUTH_FRAME_LIMIT) {
           ws.close(WS_CLOSE.badRequest, "Too many frames before auth");
           return;
         }
-        pending.push(String(data));
+        const frame = String(data);
+        pendingBytes += Buffer.byteLength(frame, "utf8");
+        if (pendingBytes > PRE_AUTH_BYTE_LIMIT) {
+          ws.close(WS_CLOSE.badRequest, "Too much data before auth");
+          return;
+        }
+        pending.push(frame);
       };
       ws.on("message", bufferFrame);
 

@@ -134,24 +134,91 @@ export function useSendMessage(workspaceId: string, channelId: string, authorId:
         authorId,
         body,
         attachments: optimisticAttachments,
+        sendRefs: attachments,
       });
       qc.setQueryData<EchoMessage[]>(key, (old) => mergeMessage(old ?? [], optimistic, true));
 
-      try {
-        const message = await apiFetch<MessageWire>(base(workspaceId, channelId), {
-          method: "POST",
-          body: { clientId, body, attachments },
-        });
-        qc.setQueryData<EchoMessage[]>(key, (old) => mergeMessage(old ?? [], message, true));
-        return message;
-      } catch (err) {
-        qc.setQueryData<EchoMessage[]>(key, (old) =>
-          (old ?? []).map((m) => (m.clientId === clientId ? { ...m, pending: false, failed: true } : m)),
-        );
-        throw err;
-      }
+      return postMessage(qc, key, workspaceId, channelId, clientId, body, attachments);
     },
   });
+}
+
+/**
+ * POST a message and reconcile the optimistic row with the result.
+ *
+ * Shared by the first send and by retries, which is what makes retrying safe:
+ * `clientId` is the server's idempotency key (unique on `(channel_id,
+ * client_id)`), so replaying the same one returns the row that already exists
+ * rather than creating a second — no duplicate, no burnt sequence number, no
+ * second broadcast. A send that actually reached the server before the network
+ * dropped therefore resolves to that same message on retry.
+ */
+async function postMessage(
+  qc: ReturnType<typeof useQueryClient>,
+  key: readonly unknown[],
+  workspaceId: string,
+  channelId: string,
+  clientId: string,
+  body: string,
+  attachments: { key: string; filename: string }[],
+): Promise<MessageWire> {
+  try {
+    const message = await apiFetch<MessageWire>(base(workspaceId, channelId), {
+      method: "POST",
+      body: { clientId, body, attachments },
+    });
+    qc.setQueryData<EchoMessage[]>(key, (old) => mergeMessage(old ?? [], message, true));
+    return message;
+  } catch (err) {
+    qc.setQueryData<EchoMessage[]>(key, (old) =>
+      (old ?? []).map((m) =>
+        m.clientId === clientId ? { ...m, pending: false, failed: true } : m,
+      ),
+    );
+    throw err;
+  }
+}
+
+/**
+ * Retry a send that failed. Replays the ORIGINAL `clientId` and attachment refs,
+ * so the server treats it as the same message however far the first attempt got.
+ */
+export function useRetrySend(workspaceId: string, channelId: string) {
+  const qc = useQueryClient();
+  const key = messagesKey(workspaceId, channelId);
+
+  return useMutation({
+    mutationFn: async (message: EchoMessage) => {
+      qc.setQueryData<EchoMessage[]>(key, (old) =>
+        (old ?? []).map((m) =>
+          m.clientId === message.clientId ? { ...m, pending: true, failed: false } : m,
+        ),
+      );
+      return postMessage(
+        qc,
+        key,
+        workspaceId,
+        channelId,
+        message.clientId,
+        message.body,
+        message.sendRefs ?? [],
+      );
+    },
+  });
+}
+
+/**
+ * Drop a failed row from the timeline. Purely local: the send never landed, so
+ * there is nothing on the server to delete.
+ */
+export function useDiscardFailed(workspaceId: string, channelId: string) {
+  const qc = useQueryClient();
+  const key = messagesKey(workspaceId, channelId);
+  return (clientId: string) => {
+    qc.setQueryData<EchoMessage[]>(key, (old) =>
+      (old ?? []).filter((m) => !(m.clientId === clientId && m.failed)),
+    );
+  };
 }
 
 export function useEditMessage(workspaceId: string, channelId: string) {

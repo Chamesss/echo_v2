@@ -21,6 +21,7 @@ import { paths } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceEvents } from "@/features/workspaces/realtime/use-workspace-events";
+import { ConnectionBanner } from "./connection-banner";
 import { PageTitleProvider, usePageTitle } from "./page-title-context";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
@@ -185,6 +186,10 @@ export function AppShell() {
             fallback={workspace.name}
             onOpen={() => setMobileOpen(true)}
           />
+
+          {/* Sits above <main> so it's visible from every route in the shell
+              without each page having to think about it. */}
+          <ConnectionBanner />
 
           <main className="flex-1 overflow-auto">
             <Outlet />

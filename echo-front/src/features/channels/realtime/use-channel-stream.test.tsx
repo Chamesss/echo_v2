@@ -23,6 +23,8 @@ const WS = "w1";
 const CHANNEL = "c1";
 
 const listeners = new Set<(e: RealtimeEvent) => void>();
+type StatusFn = (status: string, reconnected: boolean) => void;
+const statusListeners = new Set<StatusFn>();
 const client = {
   subscribe: vi.fn(),
   unsubscribe: vi.fn(),
@@ -30,8 +32,18 @@ const client = {
     listeners.add(fn);
     return () => listeners.delete(fn);
   },
-  onStatus: () => () => {},
+  onStatus: (fn: StatusFn) => {
+    statusListeners.add(fn);
+    return () => statusListeners.delete(fn);
+  },
 };
+
+/** Drive the socket status listeners, as the real client does on reconnect. */
+function emitStatus(status: string, reconnected: boolean) {
+  act(() => {
+    for (const fn of statusListeners) fn(status, reconnected);
+  });
+}
 
 vi.mock("./realtime-context", () => ({ useRealtime: () => ({ client, status: "open" }) }));
 vi.mock("@/lib/auth-client", () => ({ useSession: () => ({ data: { user: { id: "me" } } }) }));
@@ -45,7 +57,7 @@ vi.mock("../api/use-messages", () => ({
 }));
 
 import { useChannelStream } from "./use-channel-stream";
-import { messagesKey } from "../api/keys";
+import { messagesKey, readsKey } from "../api/keys";
 
 function msg(seq: number): EchoMessage {
   return {
@@ -88,6 +100,7 @@ const seqsInCache = () =>
 beforeEach(() => {
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   listeners.clear();
+  statusListeners.clear();
   fetchCatchUp.mockReset();
   fetchCatchUp.mockResolvedValue([]);
   client.subscribe.mockClear();
@@ -139,5 +152,43 @@ describe("useChannelStream under a burst", () => {
     for (let seq = 1; seq <= 10; seq += 1) emit(created(seq));
 
     expect(fetchCatchUp).not.toHaveBeenCalled();
+  });
+});
+
+describe("useChannelStream on reconnect", () => {
+  it("catches the timeline up", async () => {
+    fetchCatchUp.mockImplementation(async (_ws, _ch, since: number) =>
+      [1, 2, 3].filter((s) => s > since).map(msg),
+    );
+    renderHook(() => useChannelStream(CHANNEL, 0), { wrapper });
+    fetchCatchUp.mockClear();
+
+    emitStatus("open", true);
+
+    await waitFor(() => expect(fetchCatchUp).toHaveBeenCalled());
+  });
+
+  it("re-pulls read receipts, which the catch-up sequence cannot heal", async () => {
+    // `channel.read` carries no `updatedSeq` — it rides outside the message
+    // sequence entirely — so a receipt that arrives while we're disconnected is
+    // simply gone. `useChannelReads` is staleTime: Infinity and nothing else
+    // refetches it, so without this invalidate "Seen by" under-reports for as
+    // long as the channel stays open.
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    renderHook(() => useChannelStream(CHANNEL, 0), { wrapper });
+    invalidate.mockClear();
+
+    emitStatus("open", true);
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: readsKey(WS, CHANNEL) });
+  });
+
+  it("does no resync work on a first connect", async () => {
+    renderHook(() => useChannelStream(CHANNEL, 0), { wrapper });
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+
+    emitStatus("open", false); // first connect, not a reconnect
+
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

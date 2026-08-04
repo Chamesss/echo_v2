@@ -1,10 +1,18 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { NotificationSummary } from "@server/modules/notifications/notifications.service";
 import type { NotificationWire } from "@server/infrastructure/realtime/protocol";
 import { UserRealtime } from "@/lib/user-realtime";
+import type { RealtimeStatus } from "@/lib/reconnecting-socket";
 import { useSession } from "@/lib/auth-client";
 import { isTabVisible } from "@/lib/visibility";
 import { paths } from "@/lib/paths";
@@ -15,6 +23,7 @@ import { myWorkspacesKey } from "@/features/workspaces/api/use-my-workspaces";
 import type { ChannelDTO } from "@/features/channels/api/use-channels";
 import type { DirectMessageDTO } from "@/features/channels/api/use-dms";
 import { notificationsKey, notificationsSummaryKey } from "../api/keys";
+import { SeenKeys } from "./seen-keys";
 import {
   addNotificationToSummary,
   bumpChannelUnread,
@@ -22,6 +31,25 @@ import {
   hasConversation,
   prependNotification,
 } from "../store";
+
+interface UserRealtimeContextValue {
+  status: RealtimeStatus;
+  /** Manual retry, for when the socket closed on a terminal policy code. */
+  restart: () => void;
+}
+
+const UserRealtimeContext = createContext<UserRealtimeContextValue | null>(null);
+
+/**
+ * Awareness-socket connection state, for connection indicators.
+ *
+ * Safe to call outside the provider (the dashboard shell renders above it in
+ * some routes) — it reports "open" rather than throwing, so an indicator never
+ * becomes the reason a page fails to render.
+ */
+export function useUserRealtimeStatus(): UserRealtimeContextValue {
+  return useContext(UserRealtimeContext) ?? { status: "open", restart: () => {} };
+}
 
 /**
  * Owns the single always-on awareness socket and folds its events into the
@@ -39,6 +67,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
 
   const [client] = useState(() => new UserRealtime());
+  const [status, setStatus] = useState<RealtimeStatus>("connecting");
 
   // The channel currently open in the URL — used to skip its unread bumps while
   // the tab is focused (the user is reading it; the workspace socket + markRead
@@ -52,13 +81,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // Idempotency guard: skip any event we've already applied. Defends against
   // at-least-once delivery / reconnect replays so a count never bumps twice.
   // Keyed `n:<notificationId>` and `u:<channelId>:<seq>` (each unique per event).
-  const seen = useRef<Set<string>>(new Set());
-  const firstSeen = (key: string): boolean => {
-    if (seen.current.has(key)) return false;
-    if (seen.current.size > 4000) seen.current.clear(); // bound memory
-    seen.current.add(key);
-    return true;
-  };
+  const seen = useRef<SeenKeys>(new SeenKeys());
+  const firstSeen = (key: string): boolean => seen.current.add(key);
 
   useEffect(() => {
     if (!userId) return;
@@ -178,6 +202,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     });
 
     const offStatus = client.onStatus((status, reconnected) => {
+      setStatus(status);
       // On (re)connect, re-seed from the source of truth to heal missed events.
       if (status === "open" && reconnected) {
         qc.invalidateQueries({ queryKey: notificationsSummaryKey });
@@ -203,5 +228,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     };
   }, [client, qc, userId, navigate]);
 
-  return <>{children}</>;
+  return (
+    <UserRealtimeContext.Provider value={{ status, restart: () => client.restart() }}>
+      {children}
+    </UserRealtimeContext.Provider>
+  );
 }

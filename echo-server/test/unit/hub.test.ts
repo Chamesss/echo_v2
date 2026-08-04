@@ -44,15 +44,21 @@ class LoopbackBackplane implements Backplane {
 
 function fakeSocket() {
   const sent: string[] = [];
+  const closes: Array<{ code: number; reason: string }> = [];
   const ws = {
     readyState: 1, // WebSocket.OPEN
     send(data: string, cb?: (err?: Error) => void) {
       sent.push(data);
       cb?.();
     },
+    close(code: number, reason: string) {
+      closes.push({ code, reason });
+      ws.readyState = 3; // WebSocket.CLOSED
+    },
   };
   return {
     ws: ws as unknown as WebSocket,
+    closes,
     // The event payload of every "event" frame, loosely typed (works for both
     // workspace ServerFrames and user UserServerFrames — same `{t,event}` shape).
     events: (): unknown[] =>
@@ -93,6 +99,111 @@ describe("RealtimeHub routing", () => {
 
     expect(a.events()).toContainEqual(event);
     expect(b.events()).toContainEqual(event);
+  });
+
+  it("closes a removed member's socket instead of leaving it subscribed", async () => {
+    // Membership is checked at the handshake and channel access at `subscribe`,
+    // and nothing re-checks afterwards — so without this the removed user's
+    // socket stayed open and kept receiving the channels it had already joined
+    // until they happened to reconnect. Navigating them away client-side isn't
+    // enough: that's the victim's own browser choosing to comply.
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const removed = fakeSocket();
+    const bystander = fakeSocket();
+    hub.add(removed.ws, { userId: "ux", workspaceId: "w1" });
+    hub.add(bystander.ws, { userId: "ua", workspaceId: "w1" });
+    hub.subscribe(removed.ws, "c1");
+    hub.subscribe(bystander.ws, "c1");
+
+    await hub.publish("w1", { kind: "member.removed", userId: "ux" });
+
+    expect(removed.closes).toEqual([
+      { code: 4403, reason: "No longer a workspace member" },
+    ]);
+    expect(bystander.closes).toEqual([]);
+  });
+
+  it("still tells the removed member why, before hanging up", async () => {
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const removed = fakeSocket();
+    hub.add(removed.ws, { userId: "ux", workspaceId: "w1" });
+
+    const event: RealtimeEvent = { kind: "member.removed", userId: "ux" };
+    await hub.publish("w1", event);
+
+    // Delivery happens before eviction, so a well-behaved client can react.
+    expect(removed.events()).toContainEqual(event);
+    expect(removed.closes).toHaveLength(1);
+  });
+
+  it("stops routing to an evicted socket", async () => {
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const removed = fakeSocket();
+    const bystander = fakeSocket();
+    hub.add(removed.ws, { userId: "ux", workspaceId: "w1" });
+    hub.add(bystander.ws, { userId: "ua", workspaceId: "w1" });
+    hub.subscribe(removed.ws, "c1");
+    hub.subscribe(bystander.ws, "c1");
+
+    await hub.publish("w1", { kind: "member.removed", userId: "ux" });
+    const afterEviction = removed.events().length;
+
+    // The leak this fixes: messages in a channel they were already subscribed to.
+    await hub.publish("w1", {
+      kind: "message.created",
+      channelId: "c1",
+      updatedSeq: 1,
+      message: message("c1"),
+    });
+
+    expect(removed.events()).toHaveLength(afterEviction);
+    expect(bystander.events().length).toBeGreaterThan(0);
+  });
+
+  it("evicts every socket that user has open in the workspace", async () => {
+    // Two tabs, one membership. Closing one and not the other would leave the
+    // hole open.
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const tab1 = fakeSocket();
+    const tab2 = fakeSocket();
+    hub.add(tab1.ws, { userId: "ux", workspaceId: "w1" });
+    hub.add(tab2.ws, { userId: "ux", workspaceId: "w1" });
+
+    await hub.publish("w1", { kind: "member.removed", userId: "ux" });
+
+    expect(tab1.closes).toHaveLength(1);
+    expect(tab2.closes).toHaveLength(1);
+  });
+
+  it("leaves that user's sockets in OTHER workspaces alone", async () => {
+    // Removal is scoped to one workspace; being kicked from one must not sign
+    // you out of another you're still a member of.
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const inW1 = fakeSocket();
+    const inW2 = fakeSocket();
+    hub.add(inW1.ws, { userId: "ux", workspaceId: "w1" });
+    hub.add(inW2.ws, { userId: "ux", workspaceId: "w2" });
+
+    await hub.publish("w1", { kind: "member.removed", userId: "ux" });
+
+    expect(inW1.closes).toHaveLength(1);
+    expect(inW2.closes).toHaveLength(0);
+  });
+
+  it("does not touch the awareness socket, which is not workspace-scoped", async () => {
+    // `/ws/user` carries cross-workspace unread + notifications and depends on
+    // the SESSION, not on any one membership. Losing a workspace must not kill
+    // notifications for every other workspace the user still belongs to.
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const workspaceSocket = fakeSocket();
+    const awareness = fakeSocket();
+    hub.add(workspaceSocket.ws, { userId: "ux", workspaceId: "w1" });
+    hub.addUserSocket(awareness.ws, { userId: "ux" });
+
+    await hub.publish("w1", { kind: "member.removed", userId: "ux" });
+
+    expect(workspaceSocket.closes).toHaveLength(1);
+    expect(awareness.closes).toHaveLength(0);
   });
 
   it("delivers a channel event only to that channel's subscribers", async () => {

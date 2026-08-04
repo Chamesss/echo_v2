@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, RotateCw, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,10 @@ export interface MessageRowProps {
   authorOnline?: boolean;
   onEdit: (messageId: string, payload: EditSavePayload) => void;
   onDelete: (messageId: string) => void;
+  /** Re-send a message whose POST failed (replays the same clientId). */
+  onRetry?: (message: EchoMessage) => void;
+  /** Drop a failed row from the timeline; local-only. */
+  onDiscard?: (clientId: string) => void;
 }
 
 export function MessageRow({
@@ -32,6 +36,8 @@ export function MessageRow({
   authorOnline,
   onEdit,
   onDelete,
+  onRetry,
+  onDiscard,
 }: MessageRowProps) {
   const [editing, setEditing] = useState(false);
 
@@ -69,7 +75,30 @@ export function MessageRow({
           {message.version > 1 && !message.deleted && !unavailable && (
             <span className="text-[10px] text-muted-foreground">(edited)</span>
           )}
-          {message.failed && <span className="text-[10px] text-destructive">failed to send</span>}
+          {message.failed && (
+            <span className="flex items-center gap-1.5 text-[10px] text-destructive">
+              failed to send
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={() => onRetry(message)}
+                  className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:no-underline"
+                >
+                  <RotateCw className="size-2.5" />
+                  Retry
+                </button>
+              )}
+              {onDiscard && (
+                <button
+                  type="button"
+                  onClick={() => onDiscard(message.clientId)}
+                  className="font-medium underline underline-offset-2 hover:no-underline"
+                >
+                  Discard
+                </button>
+              )}
+            </span>
+          )}
 
           {canModify && !editing && (
             <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">

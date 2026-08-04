@@ -65,10 +65,18 @@ export function MessageComposer({ channelId }: { channelId: string }) {
     uploads.clear();
     typing.stop(); // clear everyone else's indicator now, not after their TTL
     if (textRef.current) textRef.current.style.height = "auto";
+    const sentBody = body.trim();
     send.mutate(
-      { body: body.trim(), attachments, optimisticAttachments },
+      { body: sentBody, attachments, optimisticAttachments },
       {
-        onError: (err) => toast.error(err.message),
+        onError: (err) => {
+          toast.error(err.message);
+          // Put the text back so a failed send doesn't eat what they wrote. Only
+          // when the box is still empty — if they've started a new message,
+          // clobbering it would be worse than the loss. The failed row keeps its
+          // own copy either way, and can be retried from there.
+          setBody((current) => (current.trim() ? current : sentBody));
+        },
         // The optimistic row has been swapped for the server row (stable proxy
         // URLs) on success, or marked failed on error — either way the blobs are
         // no longer referenced, so reclaim them.

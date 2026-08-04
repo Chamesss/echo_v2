@@ -17,6 +17,7 @@
     "db:reset-conversations": "bun run src/scripts/reset-conversations.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:load": "vitest run --config vitest.load.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

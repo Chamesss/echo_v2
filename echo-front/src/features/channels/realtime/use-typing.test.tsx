@@ -101,6 +101,52 @@ describe("useTypingEmitter", () => {
 
     expect(sent).toEqual([{ channelId: CHANNEL, state: "stop" }]);
   });
+
+  it("does not send stop when no start is outstanding", () => {
+    // The composer calls stop() on every keystroke that leaves the box empty,
+    // and that path is unthrottled. Since the server's quota (6 frames per 5s)
+    // is shared between start and stop, tapping space/backspace could burn it
+    // and get a real `start` silently dropped.
+    const { result } = renderHook(() => useTypingEmitter(CHANNEL));
+
+    act(() => {
+      result.current.stop();
+      result.current.stop();
+      result.current.stop();
+    });
+
+    expect(sent).toEqual([]);
+  });
+
+  it("sends at most one stop per start, however many times it is called", () => {
+    const { result } = renderHook(() => useTypingEmitter(CHANNEL));
+
+    act(() => result.current.onInput());
+    act(() => {
+      result.current.stop();
+      result.current.stop();
+      result.current.stop();
+    });
+
+    expect(sent.filter((f) => f.state === "stop")).toHaveLength(1);
+  });
+
+  it("stays under the server quota while typing and clearing repeatedly", () => {
+    // Type a character, delete it, repeat — the pattern that used to emit an
+    // unthrottled stop each time.
+    const { result } = renderHook(() => useTypingEmitter(CHANNEL));
+
+    act(() => {
+      for (let i = 0; i < 10; i += 1) {
+        result.current.onInput();
+        result.current.stop();
+      }
+    });
+
+    // 6 frames per 5s is the server's window; a well-behaved client must stay
+    // inside it even under this pattern.
+    expect(sent.length).toBeLessThanOrEqual(6);
+  });
 });
 
 describe("useTypingParticipants", () => {

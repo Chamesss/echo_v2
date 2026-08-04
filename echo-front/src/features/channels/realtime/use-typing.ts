@@ -18,6 +18,20 @@ import { useRealtime } from "./realtime-context";
 
 /** Don't re-announce "still typing" more often than this. */
 const THROTTLE_MS = 3_000;
+
+/**
+ * A client-side mirror of the server's typing quota (6 per 5s, see
+ * `realtime/server.ts`), set one below it so we never rely on being cut off.
+ *
+ * The per-start throttle alone doesn't bound frame count, because `stop` reopens
+ * the throttle window on purpose — so typing and clearing the box repeatedly
+ * emits an unthrottled start/stop pair each time. Once over the server's quota,
+ * frames are dropped by the SERVER, and the one it drops might be a real `start`.
+ * Budgeting here means the client chooses what to lose, and it chooses `stop`
+ * (whose only job is to beat a 5s TTL) over `start` (which is the whole feature).
+ */
+const QUOTA_WINDOW_MS = 5_000;
+const QUOTA_MAX_FRAMES = 5;
 /** Forget a typist we haven't heard from in this long, even without a "stop". */
 const TTL_MS = 5_000;
 /** How often to sweep expired typists out of state. */
@@ -32,18 +46,37 @@ const SWEEP_MS = 1_000;
 export function useTypingEmitter(channelId: string) {
   const { client } = useRealtime();
   const lastSentAt = useRef(0);
+  /** Send times inside the current quota window, oldest first. */
+  const frameTimes = useRef<number[]>([]);
+
+  const spendQuota = useCallback((now: number): boolean => {
+    const live = frameTimes.current.filter((t) => now - t < QUOTA_WINDOW_MS);
+    frameTimes.current = live;
+    if (live.length >= QUOTA_MAX_FRAMES) return false;
+    live.push(now);
+    return true;
+  }, []);
 
   const stop = useCallback(() => {
+    // Only clear an indicator we actually raised — otherwise every keystroke
+    // that leaves the box empty would spend quota saying nothing.
+    if (lastSentAt.current === 0) return;
+    const now = Date.now();
+    // Deliberately the first thing dropped when we're over budget: the
+    // receiver's TTL expires us within 5s anyway, so a lost `stop` costs a
+    // slightly stale indicator, while a lost `start` costs the feature.
+    if (!spendQuota(now)) return;
     lastSentAt.current = 0; // next keystroke opens a fresh throttle window
     client.typing(channelId, "stop");
-  }, [client, channelId]);
+  }, [client, channelId, spendQuota]);
 
   const onInput = useCallback(() => {
     const now = Date.now();
     if (now - lastSentAt.current < THROTTLE_MS) return;
+    if (!spendQuota(now)) return;
     lastSentAt.current = now;
     client.typing(channelId, "start");
-  }, [client, channelId]);
+  }, [client, channelId, spendQuota]);
 
   // Leaving the conversation (or unmounting entirely) has to clear the
   // indicator for everyone else — otherwise it hangs there until their TTL runs

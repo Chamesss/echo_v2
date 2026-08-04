@@ -5,6 +5,7 @@ import {
   isChannelEvent,
   userNotifyChannel,
   workspaceNotifyChannel,
+  WS_CLOSE,
   type RealtimeEvent,
   type ServerFrame,
   type UserEvent,
@@ -248,6 +249,48 @@ export class RealtimeHub {
             logger.warn({ err: err.message }, "realtime: failed to send frame");
         });
       }
+    }
+
+    // Deliver first, THEN evict: a well-behaved client is told why it's being
+    // disconnected, and a misbehaving one is disconnected regardless.
+    if (event.kind === "member.removed") this.evict(workspaceId, event.userId);
+  }
+
+  /**
+   * Close a departed member's workspace sockets.
+   *
+   * Authorization is otherwise checked only at the start of a socket's life —
+   * workspace membership at the handshake, channel access at `subscribe` — and
+   * nothing re-checks afterwards. So a removed member's socket stayed open and
+   * kept receiving the channels it had already joined, until they happened to
+   * reconnect. The client navigates itself out of the workspace on this event,
+   * but that is cosmetic: it's the victim's own browser choosing to leave, which
+   * a modified client simply wouldn't do.
+   *
+   * This runs from `deliverLocal` — i.e. off the backplane — so it fires on
+   * EVERY instance holding one of that user's sockets, not just the one that
+   * served the removal request. `removeMember` and `leaveWorkspace` both emit
+   * `member.removed`, so both paths are covered by this one hook.
+   */
+  private evict(workspaceId: string, userId: string): void {
+    const entry = this.workspaces.get(workspaceId);
+    if (!entry) return;
+    // Collect before closing: `remove()` mutates the set being iterated.
+    const doomed: WebSocket[] = [];
+    for (const ws of entry.sockets) {
+      if (this.contexts.get(ws)?.userId === userId) doomed.push(ws);
+    }
+    for (const ws of doomed) {
+      // Drop hub state first, so nothing further can be routed to this socket
+      // while the close handshake completes.
+      this.remove(ws);
+      ws.close(WS_CLOSE.forbidden, "No longer a workspace member");
+    }
+    if (doomed.length > 0) {
+      logger.info(
+        { workspaceId, userId, sockets: doomed.length },
+        "realtime: closed sockets for a removed member",
+      );
     }
   }
 }

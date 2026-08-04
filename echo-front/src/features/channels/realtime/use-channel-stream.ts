@@ -152,12 +152,20 @@ export function useChannelStream(channelId: string, channelLastSeq: number) {
     void runCatchUp();
     const offEvent = client.onEvent(handleEvent);
     const offStatus = client.onStatus((status, reconnected) => {
-      if (status === "open" && reconnected) void runCatchUp();
+      if (status !== "open" || !reconnected) return;
+      void runCatchUp();
+      // Read cursors have no `updatedSeq` and so ride outside the catch-up
+      // sequence entirely — `channel.read` is a live-only event. Any receipt
+      // that landed while we were down is simply gone, and `useChannelReads` is
+      // `staleTime: Infinity`, so nothing else would ever refetch it: "Seen by"
+      // would under-report for as long as the channel stayed open. Re-pull it
+      // from the source of truth alongside the message catch-up.
+      void qc.invalidateQueries({ queryKey: readsKey(workspace.id, channelId) });
     });
     return () => {
       offEvent();
       offStatus();
       client.unsubscribe(channelId);
     };
-  }, [client, channelId, handleEvent, runCatchUp]);
+  }, [client, channelId, handleEvent, runCatchUp, qc, workspace.id]);
 }
