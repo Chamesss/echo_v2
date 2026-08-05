@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { withTenantSchema } from "../../infrastructure/database/tenant/client.js";
 import { emitUserEvents, UserEvents } from "../../infrastructure/realtime/events.js";
+import { participantLabel } from "../notifications/notification-copy.js";
 import { BadRequestError, NotFoundError } from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import type { ChannelDTO } from "./channels.service.js";
@@ -57,7 +58,10 @@ function dmKey(userIds: string[]): string {
  */
 function label(participants: DmParticipant[], selfId: string): string {
   const others = participants.filter((p) => p.userId !== selfId);
-  return (others.length ? others : participants).map((p) => p.name).join(", ");
+  // Uncapped: a sidebar row gets a whole line, so it names everyone. The
+  // notification fan-out caps the same helper — one rule for how we name a
+  // group, two budgets for how much room it has.
+  return participantLabel((others.length ? others : participants).map((p) => p.name));
 }
 
 /** Build a DM DTO (channel + read-state for `selfId` + participants). */

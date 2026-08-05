@@ -6,6 +6,7 @@ import {
   RealtimeEvents,
   UserEvents,
 } from "../../infrastructure/realtime/events.js";
+import { revokeChannelNotifications } from "../notifications/notifications.service.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import type { CreateChannelBody } from "./channels.dto.js";
@@ -359,6 +360,11 @@ export async function deleteChannel(
     await db.query(`DELETE FROM channels WHERE id = $1`, [channelId]);
   });
 
+  // The channel's rows cascade inside the tenant schema, but notifications live
+  // in the control plane with no FK to them — nobody can open this channel now,
+  // so nobody should still have an inbox entry pointing at it.
+  await revokeChannelNotifications(channelId);
+
   // Drop it from every live client's list (and bounce anyone viewing it).
   await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelDeleted(channelId));
 }
@@ -386,6 +392,10 @@ export async function leaveChannel(
       userId,
     ]);
   });
+
+  // Their inbox shouldn't keep entries for a conversation they just left — the
+  // "View" on each one would land on "Channel not found".
+  await revokeChannelNotifications(channelId, userId);
 
   // Member set changed → re-read the channel (the leaver's own list drops it too).
   await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channelId));
@@ -508,6 +518,10 @@ export async function removeChannelMember(
       targetUserId,
     ]);
   });
+
+  // Same as `leaveChannel`: access ended, so the inbox entries that point here
+  // have to go with it.
+  await revokeChannelNotifications(channelId, targetUserId);
 
   // Dual-route to the removed user so they lose it live (and get bounced out if
   // viewing it); broadcast so member-list viewers re-read.

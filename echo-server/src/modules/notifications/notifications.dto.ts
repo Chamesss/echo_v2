@@ -6,6 +6,15 @@ export const listNotificationsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
   /** ISO timestamp — return notifications older than this (keyset paging). */
   before: z.string().datetime().optional(),
+  /**
+   * The id of the row `before` came from, to break ties on identical timestamps.
+   *
+   * `created_at` alone isn't a unique sort key: two messages reaching the same
+   * person in the same instant order arbitrarily, and an arbitrary order means a
+   * page boundary can silently skip a row or repeat one. Optional so an older
+   * client still pages (just without the tie-break).
+   */
+  beforeId: z.string().uuid().optional(),
 });
 export type ListNotificationsQuery = z.infer<typeof listNotificationsQuery>;
 

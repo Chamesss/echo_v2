@@ -15,8 +15,10 @@ import { fileProxyUrl } from "../files/files.service.js";
 import { logger } from "../../shared/logger/logger.js";
 import {
   createMessageNotifications,
+  markRead as markNotificationsRead,
   notifiableRecipients,
 } from "../notifications/notifications.service.js";
+import { participantLabel } from "../notifications/notification-copy.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import { assertChannelMember } from "./channels.service.js";
@@ -254,9 +256,83 @@ export async function sendMessage(
       updatedSeq: message.updatedSeq,
       message,
     });
-    await fanOutAwareness(workspaceId, channelId, userId, message);
+    // Deliberately NOT awaited. Everything that makes a send durable and visible
+    // has already happened — the row is committed and the channel broadcast is
+    // out — and this function is best-effort by contract (see below). Awaiting it
+    // put a member lookup and a control-plane insert inside the caller's wait for
+    // no gain in correctness; on a slow database that was the dominant cost of
+    // sending a message. It owns its own error handling, so nothing escapes.
+    trackFanOut(fanOutAwareness(workspaceId, channelId, userId, message));
   }
   return message;
+}
+
+/**
+ * Fan-outs still in flight, so something can wait for them.
+ *
+ * Detaching the fan-out from the send made it unobservable — the work is real
+ * but nothing holds a handle to it. Two callers need one: a graceful shutdown,
+ * which shouldn't drop notifications that were seconds from being written, and
+ * tests, which would otherwise assert against a fan-out that hasn't run yet and
+ * pass or fail on timing.
+ */
+const inFlightFanOuts = new Set<Promise<void>>();
+
+function trackFanOut(p: Promise<void>): void {
+  inFlightFanOuts.add(p);
+  // `then(cleanup, cleanup)` rather than `finally`, which would re-raise a
+  // rejection with nothing left to catch it. `fanOutAwareness` swallows its own
+  // errors today, so this is belt-and-braces — but an unhandled rejection from a
+  // detached promise takes the whole process down, which is far too steep a
+  // price for best-effort work.
+  const forget = () => {
+    inFlightFanOuts.delete(p);
+  };
+  p.then(forget, forget);
+}
+
+/** Wait for every in-flight awareness fan-out to settle. */
+export async function drainAwarenessFanOut(): Promise<void> {
+  // Snapshot per pass: settling one can't enqueue another (fan-out never sends),
+  // but the loop costs nothing and removes the assumption.
+  while (inFlightFanOuts.size > 0) {
+    await Promise.allSettled([...inFlightFanOuts]);
+  }
+}
+
+/** How many people a group's derived label names before "& N others". */
+const GROUP_LABEL_MAX_NAMES = 2;
+
+/**
+ * The `channelName` snapshot stored on ONE recipient's notification.
+ *
+ * Per recipient, not per message, because the answer differs for each of them —
+ * which is free, since a notification row is inserted per recipient anyway.
+ *
+ *   - a 1:1 gets `null`: the sender identifies the conversation, so a name would
+ *     just repeat them;
+ *   - a named group or channel gets its name;
+ *   - an UNNAMED group gets a label built from the other people in it, with the
+ *     reader excluded — otherwise you'd read your own name back. Without this a
+ *     group message was indistinguishable from a private 1:1: both rendered
+ *     "sent you a message", so you couldn't tell whether someone had written to
+ *     you alone or in front of four other people.
+ *
+ * A snapshot, deliberately — renaming a group later leaves old notifications
+ * reading as they did when they arrived, exactly as channels already behave.
+ */
+function notificationLabelFor(
+  channelType: string,
+  channelName: string | null,
+  members: Array<{ userId: string; name: string }>,
+  recipientId: string,
+): string | null {
+  if (channelType === "direct") return null;
+  if (channelName) return channelName;
+  if (channelType !== "group") return null;
+
+  const others = members.filter((m) => m.userId !== recipientId).map((m) => m.name);
+  return participantLabel(others, GROUP_LABEL_MAX_NAMES) || null;
 }
 
 /**
@@ -276,6 +352,7 @@ export async function sendMessage(
  * Best-effort: the message is already durable and the primary broadcast is done,
  * so a hiccup here must never fail the send — errors are swallowed + logged, and
  * recipients' counts self-heal from the summary endpoint on their next load.
+ * That contract is also why the caller doesn't await it.
  */
 async function fanOutAwareness(
   workspaceId: string,
@@ -284,25 +361,39 @@ async function fanOutAwareness(
   message: MessageWire,
 ): Promise<void> {
   try {
-    const { channelType, channelName, recipientIds } = await withTenantSchema(
+    // One round trip, not two: the channel row rides along with the member list
+    // via a lateral-free join, and each member's NAME comes with them — needed
+    // below to label an unnamed group. Previously this was two sequential
+    // queries and no names.
+    const { channelType, channelName, members } = await withTenantSchema(
       workspaceId,
       async (db) => {
-        const ch = await db.query<{ type: string; name: string | null }>(
-          `SELECT type, name FROM channels WHERE id = $1`,
+        const { rows } = await db.query<{
+          type: string;
+          name: string | null;
+          user_id: string | null;
+          user_name: string | null;
+        }>(
+          `SELECT c.type, c.name, cm.user_id, u.name AS user_name
+             FROM channels c
+             LEFT JOIN channel_members cm ON cm.channel_id = c.id
+             LEFT JOIN users u ON u.id = cm.user_id
+            WHERE c.id = $1`,
           [channelId],
         );
-        const mem = await db.query<{ user_id: string }>(
-          `SELECT user_id FROM channel_members WHERE channel_id = $1 AND user_id <> $2`,
-          [channelId, authorId],
-        );
         return {
-          channelType: ch.rows[0]?.type,
-          channelName: ch.rows[0]?.name ?? null,
-          recipientIds: mem.rows.map((r) => r.user_id),
+          channelType: rows[0]?.type,
+          channelName: rows[0]?.name ?? null,
+          // Every member INCLUDING the author — the author is filtered out of the
+          // recipients below, but their name still belongs in a group's label.
+          members: rows
+            .filter((r) => r.user_id !== null)
+            .map((r) => ({ userId: r.user_id!, name: r.user_name ?? "" })),
         };
       },
     );
 
+    const recipientIds = members.map((m) => m.userId).filter((id) => id !== authorId);
     if (!channelType || recipientIds.length === 0) return;
     const isDm = channelType === "direct" || channelType === "group";
 
@@ -336,18 +427,19 @@ async function fanOutAwareness(
     // disabled notifications for this workspace. Every message earns one.
     const notifiable = await notifiableRecipients(recipientIds, workspaceId);
     if (notifiable.length > 0) {
-      const created = await createMessageNotifications(notifiable, {
-        workspaceId,
-        channelId,
-        // A 1:1 is identified by its sender, so a name would be redundant. A
-        // named group is not — without this its toast read "Sent you a message"
-        // with no clue which conversation it came from. An unnamed group still
-        // sends null and falls back to that generic copy.
-        channelName: channelType === "direct" ? null : channelName,
-        messageId: message.id,
-        actorId: authorId,
-        type: isDm ? "dm" : "message",
-      });
+      const created = await createMessageNotifications(
+        notifiable.map((userId) => ({
+          userId,
+          channelName: notificationLabelFor(channelType, channelName, members, userId),
+        })),
+        {
+          workspaceId,
+          channelId,
+          messageId: message.id,
+          actorId: authorId,
+          type: isDm ? "dm" : "message",
+        },
+      );
       for (const c of created) {
         entries.push({
           userId: c.recipientId,
@@ -551,6 +643,15 @@ export async function markRead(
     );
     return rows[0]!.last_read_seq;
   });
+
+  // The cursor and the inbox are two records of the same fact — "this person has
+  // read this conversation" — and they used to move independently. The client
+  // cleared notifications ONCE per channel open while the cursor kept advancing
+  // on every focus, so anything arriving after that first moment stayed unread in
+  // the bell forever; worse, messages read while the tab was visible were only
+  // suppressed client-side, so the count came back on reload. Driving both from
+  // this one signal makes divergence impossible. Normally updates zero rows.
+  await markNotificationsRead(userId, { channelId });
 
   await hub.publish(workspaceId, { kind: "channel.read", channelId, userId, lastReadSeq });
   return { lastReadSeq };

@@ -7,10 +7,11 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { NotificationSummary } from "@server/modules/notifications/notifications.service";
 import type { NotificationWire } from "@server/infrastructure/realtime/protocol";
+import { describeCoalesced } from "@server/modules/notifications/notification-copy";
 import { UserRealtime } from "@/lib/user-realtime";
 import type { RealtimeStatus } from "@/lib/reconnecting-socket";
 import { useSession } from "@/lib/auth-client";
@@ -37,6 +38,83 @@ interface UserRealtimeContextValue {
   status: RealtimeStatus;
   /** Manual retry, for when the socket closed on a terminal policy code. */
   restart: () => void;
+}
+
+/** How long a conversation's toast keeps absorbing follow-ups before starting over. */
+export const TOAST_COALESCE_MS = 6_000;
+
+/** The running state of one conversation's on-screen toast. */
+interface ToastGroup {
+  /** Sonner id — re-using it REPLACES the toast rather than stacking a new one. */
+  id: string;
+  /** Messages folded into it so far. */
+  count: number;
+  /** Senders, in arrival order, deduped — the "Alice and 2 others" part. */
+  actors: string[];
+  /** When it was last written, so a quiet gap starts a fresh toast. */
+  updatedAt: number;
+}
+
+/**
+ * Distinguishes one burst from the next, per conversation.
+ *
+ * A counter rather than a timestamp: `Date.now()` has millisecond resolution, so
+ * several messages arriving in the same tick would mint the SAME id and appear
+ * coalesced whether or not the grouping logic ran at all.
+ */
+let toastGeneration = 0;
+
+/**
+ * Show a toast for a message, folding it into the conversation's existing one.
+ *
+ * A toast per message meant an eight-person group trading twenty messages threw
+ * twenty pop-ups, each shoving the last off screen — the busier a conversation
+ * got, the less usable its notifications were. Sonner treats a repeated `id` as
+ * an update, so one toast per conversation can stay put and rewrite itself:
+ * "Alice · New message in Project X" becomes "Project X · Alice and 2 others ·
+ * 6 new".
+ *
+ * The group expires after `TOAST_COALESCE_MS` of quiet so a message arriving
+ * much later reads as new rather than continuing a stale count. Wording comes
+ * from the shared registry, so this and the notification tray can't drift.
+ */
+function showConversationToast(
+  groups: Map<string, ToastGroup>,
+  n: NotificationWire,
+  onView: () => void,
+): void {
+  const now = Date.now();
+  // Expired groups are dead weight — the map is keyed by conversation and the
+  // provider lives for the whole session, so without this every conversation the
+  // user ever received a message in stays in memory.
+  for (const [channelId, group] of groups) {
+    if (now - group.updatedAt >= TOAST_COALESCE_MS) groups.delete(channelId);
+  }
+
+  const prev = groups.get(n.channelId);
+  const live = prev && now - prev.updatedAt < TOAST_COALESCE_MS ? prev : undefined;
+
+  const group: ToastGroup = live
+    ? {
+        ...live,
+        count: live.count + 1,
+        actors: live.actors.includes(n.actorName) ? live.actors : [...live.actors, n.actorName],
+        updatedAt: now,
+      }
+    : {
+        id: `conv:${n.channelId}:${++toastGeneration}`,
+        count: 1,
+        actors: [n.actorName],
+        updatedAt: now,
+      };
+  groups.set(n.channelId, group);
+
+  const copy = describeCoalesced(n, group.actors, group.count);
+  toast(copy.title, {
+    id: group.id,
+    description: copy.toastBody,
+    action: { label: "View", onClick: onView },
+  });
 }
 
 const UserRealtimeContext = createContext<UserRealtimeContextValue | null>(null);
@@ -84,6 +162,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // Keyed `n:<notificationId>` and `u:<channelId>:<seq>` (each unique per event).
   const seen = useRef<SeenKeys>(new SeenKeys());
   const firstSeen = (key: string): boolean => seen.current.add(key);
+
+  // One live toast per conversation — see `showConversationToast`.
+  const toasts = useRef<Map<string, ToastGroup>>(new Map());
 
   useEffect(() => {
     if (!userId) return;
@@ -142,7 +223,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         // skip the inbox/unseen/toast; ChannelView marks it read.
         if (n.channelId === activeChannelRef.current && isTabVisible()) return;
 
-        qc.setQueryData<NotificationWire[]>(notificationsKey, (l) => prependNotification(l, n));
+        qc.setQueryData<InfiniteData<NotificationWire[]>>(notificationsKey, (d) =>
+          prependNotification(d, n),
+        );
         qc.setQueryData<NotificationSummary>(notificationsSummaryKey, (s) =>
           s ? addNotificationToSummary(s, n.workspaceId) : s,
         );
@@ -151,13 +234,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         healUnknownConversation(n.workspaceId, n.channelId);
 
         // Global toast — fires anywhere in the app (the provider is app-wide).
-        toast(n.actorName, {
-          description: n.channelName ? `New message in #${n.channelName}` : "Sent you a message",
-          action: {
-            label: "View",
-            onClick: () => navigate(paths.workspaceChannel(n.workspaceId, n.channelId)),
-          },
-        });
+        showConversationToast(toasts.current, n, () =>
+          navigate(paths.workspaceChannel(n.workspaceId, n.channelId)),
+        );
         return;
       }
 
@@ -176,6 +255,14 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (event.kind === "channel.removed") {
         // Removed → drop it; bounce me out if I'm viewing it.
         invalidateConversationLists(qc, event.workspaceId);
+        // The server has just deleted my notifications for this conversation, and
+        // its unread no longer counts toward the workspace. Neither cache would
+        // notice on its own: the summary is `staleTime: Infinity` and refreshes
+        // only on reconnect, so the workspace switcher kept showing a count for a
+        // conversation I can't open — and an open tray kept listing entries whose
+        // "View" now dead-ends.
+        qc.invalidateQueries({ queryKey: notificationsKey });
+        qc.invalidateQueries({ queryKey: notificationsSummaryKey });
         if (
           window.location.pathname ===
           paths.workspaceChannel(event.workspaceId, event.channelId)

@@ -43,11 +43,16 @@ vi.mock("react-router", () => ({
 
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { info: vi.fn() }) }));
 
+import { toast } from "sonner";
 import { NotificationsProvider } from "./notifications-provider";
 import { channelsKey } from "@/features/channels/api/keys";
 import { dmsKey } from "@/features/channels/api/use-dms";
+import { notificationsKey, notificationsSummaryKey } from "../api/keys";
 
 const WS = "w1";
+
+/** Unique ids per notification, so the provider's dedupe guard never swallows one. */
+let notifSeq = 0;
 
 function emit(event: UserEvent) {
   act(() => {
@@ -85,6 +90,7 @@ function mount() {
 beforeEach(() => {
   listeners.event.clear();
   listeners.status.clear();
+  vi.mocked(toast).mockClear();
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
 
@@ -142,6 +148,107 @@ describe("awareness events for an unknown conversation", () => {
       },
     });
 
+    expect(invalidated(qc, dmsKey(WS))).toBe(true);
+  });
+});
+
+describe("toasts for a busy conversation", () => {
+  /** A `notification.created` event for `channelId`, sent by `actorName`. */
+  const notif = (channelId: string, actorName: string, over = {}): UserEvent => ({
+    kind: "notification.created",
+    notification: {
+      id: `n-${++notifSeq}`,
+      type: "dm",
+      workspaceId: WS,
+      channelId,
+      channelName: "Project X",
+      messageId: `m-${notifSeq}`,
+      actorId: `u-${actorName}`,
+      actorName,
+      actorImage: null,
+      important: false,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      seenAt: null,
+      readAt: null,
+      ...over,
+    },
+  });
+
+  it("folds follow-ups into ONE toast instead of stacking a new one each time", () => {
+    // An eight-person group trading twenty messages used to throw twenty pop-ups,
+    // each shoving the last off screen. Sonner treats a repeated id as an update.
+    qc.setQueryData(dmsKey(WS), [{ id: "busy", unread: 0 }]);
+    mount();
+
+    emit(notif("busy", "Alice"));
+    emit(notif("busy", "Bob"));
+    emit(notif("busy", "Alice"));
+
+    const calls = vi.mocked(toast).mock.calls;
+    expect(calls).toHaveLength(3);
+    // Same toast id every time — three calls, one toast on screen.
+    const ids = calls.map((c) => (c[1] as { id: string }).id);
+    expect(new Set(ids).size).toBe(1);
+  });
+
+  it("counts up and names the senders as it goes", () => {
+    qc.setQueryData(dmsKey(WS), [{ id: "busy", unread: 0 }]);
+    mount();
+
+    emit(notif("busy", "Alice"));
+    emit(notif("busy", "Bob"));
+    emit(notif("busy", "Carol"));
+
+    const calls = vi.mocked(toast).mock.calls;
+    // First is a plain single-message toast...
+    expect(calls[0]![0]).toBe("Alice");
+    // ...the last is titled by the conversation and carries the running total.
+    expect(calls[2]![0]).toBe("Project X");
+    expect((calls[2]![1] as { description: string }).description).toBe(
+      "Alice, Bob & 1 other · 3 new",
+    );
+  });
+
+  it("keeps separate conversations on separate toasts", () => {
+    qc.setQueryData(dmsKey(WS), [
+      { id: "one", unread: 0 },
+      { id: "two", unread: 0 },
+    ]);
+    mount();
+
+    emit(notif("one", "Alice"));
+    emit(notif("two", "Bob"));
+
+    const ids = vi.mocked(toast).mock.calls.map((c) => (c[1] as { id: string }).id);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("never renders a # in front of a group's name", () => {
+    qc.setQueryData(dmsKey(WS), [{ id: "busy", unread: 0 }]);
+    mount();
+
+    emit(notif("busy", "Alice"));
+
+    const description = (vi.mocked(toast).mock.calls[0]![1] as { description: string }).description;
+    expect(description).toBe("New message in Project X");
+    expect(description).not.toContain("#");
+  });
+});
+
+describe("losing access to a conversation", () => {
+  it("re-reads the inbox and the badge, not just the lists", () => {
+    // The server has just deleted my notifications for it; neither cache would
+    // notice on its own (the summary is `staleTime: Infinity`), so the switcher
+    // kept a count for a conversation I can no longer open.
+    qc.setQueryData(dmsKey(WS), [{ id: "gone", unread: 3 }]);
+    qc.setQueryData(notificationsKey, { pages: [[]], pageParams: [undefined] });
+    qc.setQueryData(notificationsSummaryKey, { unseen: 3, workspaces: [] });
+    mount();
+
+    emit({ kind: "channel.removed", workspaceId: WS, channelId: "gone" });
+
+    expect(invalidated(qc, notificationsKey)).toBe(true);
+    expect(invalidated(qc, notificationsSummaryKey)).toBe(true);
     expect(invalidated(qc, dmsKey(WS))).toBe(true);
   });
 });

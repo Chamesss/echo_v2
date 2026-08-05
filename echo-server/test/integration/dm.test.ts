@@ -9,7 +9,11 @@ import {
   listChannels,
 } from "../../src/modules/channels/channels.service.js";
 import { listDirectMessages, openOrCreateDm } from "../../src/modules/channels/dm.service.js";
-import { listMessages, sendMessage } from "../../src/modules/channels/messages.service.js";
+import {
+  drainAwarenessFanOut,
+  listMessages,
+  sendMessage,
+} from "../../src/modules/channels/messages.service.js";
 import {
   addMember,
   createUser,
@@ -70,6 +74,10 @@ describe("dm.created events on the realtime bus", () => {
 
     const toUsers = vi.spyOn(hub, "publishToUsers").mockResolvedValue();
     await sendMessage(ws.workspaceId, dm.id, a.id, { clientId: randomUUID(), body: "first" });
+    // The awareness fan-out is detached from the send — it's best-effort work
+    // that no longer sits inside the caller's wait — so anything asserting on it
+    // has to wait for it explicitly.
+    await drainAwarenessFanOut();
 
     const first = toUsers.mock.calls.at(-1)![0];
     expect(first).toContainEqual({
@@ -82,6 +90,7 @@ describe("dm.created events on the realtime bus", () => {
     // Every later message is an unread bump only — no repeat.
     toUsers.mockClear();
     await sendMessage(ws.workspaceId, dm.id, a.id, { clientId: randomUUID(), body: "second" });
+    await drainAwarenessFanOut();
     const later = toUsers.mock.calls.at(-1)![0];
     expect(later.some((x) => x.event.kind === "dm.created")).toBe(false);
     expect(later.some((x) => x.event.kind === "unread.bump")).toBe(true);

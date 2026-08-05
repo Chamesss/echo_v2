@@ -1,0 +1,1 @@
+CREATE INDEX "notifications_channel_idx" ON "notifications" USING btree ("channel_id");

@@ -13,6 +13,7 @@ export async function listNotificationsController(req: Request, res: Response): 
   const notifications = await notificationsService.listNotifications(req.user.id, {
     limit: q.limit,
     before: q.before,
+    beforeId: q.beforeId,
   });
   res.json({ notifications });
 }

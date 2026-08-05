@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { NotificationWire } from "@server/infrastructure/realtime/protocol";
 import type { NotificationSummary } from "@server/modules/notifications/notifications.service";
 import { apiFetch } from "@/lib/api";
@@ -31,20 +36,50 @@ export function useNotificationsSummary() {
   });
 }
 
+/** Entries per request. Also the "is there more?" signal — see `getNextPageParam`. */
+export const NOTIFICATIONS_PAGE_SIZE = 20;
+
+/** Keyset cursor: the last row of the newest page we hold. */
+interface NotificationCursor {
+  before: string;
+  beforeId: string;
+}
+
 /**
- * Recent inbox entries (newest first). Loaded when the bell opens. The cache
- * stores the BARE array so the live `notification.created` prepend (setQueryData
- * of an array) matches the shape it reads — otherwise the inbox only updates on
- * refetch.
+ * The inbox, newest first, paged on demand. Loaded when the bell opens.
+ *
+ * Keyset paging on `(createdAt, id)` rather than an offset: the list is being
+ * prepended to live, and an offset would re-serve or skip rows every time
+ * something new arrived at the top. The cursor names a ROW, so it stays correct
+ * however much lands above it.
+ *
+ * `prependNotification` writes into `pages[0]` to keep the live path working
+ * with this shape — see its note in `../store.ts`.
  */
 export function useNotificationsList(enabled: boolean) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: notificationsKey,
-    queryFn: async () => {
-      const { notifications } = await apiFetch<{ notifications: NotificationWire[] }>(
-        "/api/notifications?limit=30",
-      );
+    initialPageParam: undefined as NotificationCursor | undefined,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({
+        limit: String(NOTIFICATIONS_PAGE_SIZE),
+      });
+      if (pageParam) {
+        params.set("before", pageParam.before);
+        params.set("beforeId", pageParam.beforeId);
+      }
+      const { notifications } = await apiFetch<{
+        notifications: NotificationWire[];
+      }>(`/api/notifications?${params.toString()}`);
       return notifications;
+    },
+    // A short page means the server had nothing more to give. Returning
+    // `undefined` is what clears `hasNextPage`, so this is the only thing
+    // stopping the list paging forever.
+    getNextPageParam: (lastPage) => {
+      if (lastPage.length < NOTIFICATIONS_PAGE_SIZE) return undefined;
+      const tail = lastPage[lastPage.length - 1]!;
+      return { before: tail.createdAt, beforeId: tail.id };
     },
     enabled,
   });
@@ -54,7 +89,8 @@ export function useNotificationsList(enabled: boolean) {
 export function useMarkSeen() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiFetch<{ seen: number }>("/api/notifications/seen", { method: "POST" }),
+    mutationFn: () =>
+      apiFetch<{ seen: number }>("/api/notifications/seen", { method: "POST" }),
     onSuccess: () => {
       qc.setQueryData<NotificationSummary>(notificationsSummaryKey, (s) =>
         s ? { ...s, unseen: 0 } : s,
@@ -67,8 +103,15 @@ export function useMarkSeen() {
 export function useMarkRead() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (scope: { ids?: string[]; channelId?: string; all?: boolean }) =>
-      apiFetch<{ read: number }>("/api/notifications/read", { method: "POST", body: scope }),
+    mutationFn: (scope: {
+      ids?: string[];
+      channelId?: string;
+      all?: boolean;
+    }) =>
+      apiFetch<{ read: number }>("/api/notifications/read", {
+        method: "POST",
+        body: scope,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: notificationsKey });
       qc.invalidateQueries({ queryKey: notificationsSummaryKey });
@@ -84,7 +127,9 @@ export function useNotificationSettings(workspaceId: string) {
   return useQuery({
     queryKey: settingsKey(workspaceId),
     queryFn: () =>
-      apiFetch<{ enabled: boolean }>(`/api/notifications/settings/${workspaceId}`),
+      apiFetch<{ enabled: boolean }>(
+        `/api/notifications/settings/${workspaceId}`,
+      ),
     select: (d) => d.enabled,
   });
 }
@@ -94,10 +139,13 @@ export function useSetNotificationSettings(workspaceId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (enabled: boolean) =>
-      apiFetch<{ enabled: boolean }>(`/api/notifications/settings/${workspaceId}`, {
-        method: "PUT",
-        body: { enabled },
-      }),
+      apiFetch<{ enabled: boolean }>(
+        `/api/notifications/settings/${workspaceId}`,
+        {
+          method: "PUT",
+          body: { enabled },
+        },
+      ),
     onSuccess: (data) => qc.setQueryData(settingsKey(workspaceId), data),
   });
 }

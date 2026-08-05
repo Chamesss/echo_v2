@@ -1,15 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Echo">
-  <!--
-    Echo site icon: a blue message bubble.
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Group messaging">
+  <defs>
+    <linearGradient id="gm-purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="gm-blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="gm-sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gm-rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".85"/>
+      <stop offset=".55" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gm-dot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ede9fe"/>
+    </linearGradient>
 
-    Drawn on a 32×32 grid as ONE path (rounded body + tail) so it stays a single
-    crisp shape when the browser rasterizes it down to 16px in the tab strip.
-    Solid fill rather than a gradient for the same reason — gradients turn to
-    mud at favicon sizes. The blue is Tailwind's blue-600 (#2563eb), which holds
-    enough contrast against both light and dark browser chrome.
-  -->
-  <path fill="#2563eb" d="M8 5h16a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5h-10l-6 6v-6a5 5 0 0 1-5-5v-8a5 5 0 0 1 5-5z"/>
-  <circle cx="10.5" cy="14" r="2" fill="#ffffff"/>
-  <circle cx="16" cy="14" r="2" fill="#ffffff"/>
-  <circle cx="21.5" cy="14" r="2" fill="#ffffff"/>
+    <path id="gm-front" d="M6 8H20a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4H8l-6 4V12a4 4 0 0 1 4-4z"/>
+    <path id="gm-back"  d="M18 2h8a4 4 0 0 1 4 4v14l-6-4h-6a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4z"/>
+
+    <clipPath id="gm-clipF"><use href="#gm-front"/></clipPath>
+    <clipPath id="gm-clipB"><use href="#gm-back"/></clipPath>
+    <mask id="gm-cut">
+      <rect width="32" height="32" fill="#fff"/>
+      <use href="#gm-front" fill="#000" stroke="#000" stroke-width="2" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+
+  <g mask="url(#gm-cut)">
+    <use href="#gm-back" fill="url(#gm-blue)"/>
+    <rect x="14" y="2" width="16" height="8" fill="url(#gm-sheen)" clip-path="url(#gm-clipB)"/>
+    <use href="#gm-back" fill="none" stroke="url(#gm-rim)" stroke-width="2" clip-path="url(#gm-clipB)"/>
+  </g>
+
+  <use href="#gm-front" fill="url(#gm-purple)"/>
+  <rect x="2" y="8" width="22" height="9" fill="url(#gm-sheen)" clip-path="url(#gm-clipF)"/>
+  <use href="#gm-front" fill="none" stroke="url(#gm-rim)" stroke-width="2" clip-path="url(#gm-clipF)"/>
+
+  <circle cx="7"  cy="16" r="2" fill="url(#gm-dot)"/>
+  <circle cx="13" cy="16" r="2" fill="url(#gm-dot)"/>
+  <circle cx="19" cy="16" r="2" fill="url(#gm-dot)"/>
 </svg>

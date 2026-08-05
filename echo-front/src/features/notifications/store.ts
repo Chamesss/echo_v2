@@ -1,3 +1,4 @@
+import type { InfiniteData } from "@tanstack/react-query";
 import type { NotificationWire } from "@server/infrastructure/realtime/protocol";
 import type { NotificationSummary } from "@server/modules/notifications/notifications.service";
 
@@ -38,13 +39,27 @@ export function addNotificationToSummary(
   return { ...summary, unseen: summary.unseen + 1, workspaces };
 }
 
-/** Prepend a notification to the inbox list, deduped by id. */
+/**
+ * Prepend a live notification to the paged inbox, deduped by id.
+ *
+ * The inbox is an infinite query, so its cache is `{ pages, pageParams }` rather
+ * than a flat array — the new entry belongs at the head of `pages[0]`, which is
+ * the newest page. Dedupe sweeps EVERY page, not just the first: an entry that
+ * arrived live can also come back in a refetched page, and two copies of one
+ * notification would both render and both count.
+ *
+ * Returns the cache untouched when it isn't loaded. Seeding a page here would
+ * invent a page the server never sent, and `getNextPageParam` would then read a
+ * one-item page as "there is nothing older" — permanently hiding the real
+ * history behind a tray that thinks it's complete.
+ */
 export function prependNotification(
-  list: NotificationWire[] | undefined,
+  data: InfiniteData<NotificationWire[]> | undefined,
   n: NotificationWire,
-): NotificationWire[] {
-  const rest = (list ?? []).filter((x) => x.id !== n.id);
-  return [n, ...rest];
+): InfiniteData<NotificationWire[]> | undefined {
+  if (!data) return data;
+  const pages = data.pages.map((page) => page.filter((x) => x.id !== n.id));
+  return { ...data, pages: [[n, ...(pages[0] ?? [])], ...pages.slice(1)] };
 }
 
 /**

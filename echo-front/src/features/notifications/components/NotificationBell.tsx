@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Bell } from "lucide-react";
 import type { NotificationWire } from "@server/infrastructure/realtime/protocol";
+import { describeNotification } from "@server/modules/notifications/notification-copy";
 import { paths } from "@/lib/paths";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
@@ -24,7 +25,9 @@ export function NotificationBell() {
   const unseen = summary?.unseen ?? 0;
 
   const [open, setOpen] = useState(false);
-  const { data: notifications = [], isPending } = useNotificationsList(open);
+  const { data, isPending, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useNotificationsList(open);
+  const notifications = data?.pages.flat() ?? [];
   const markSeen = useMarkSeen();
   const markRead = useMarkRead();
   const navigate = useNavigate();
@@ -113,9 +116,11 @@ export function NotificationBell() {
                     userId={n.actorId}
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="font-medium text-foreground">{n.actorName}</span>{" "}
+                    <span className="font-medium text-foreground">
+                      {describeNotification(n).title}
+                    </span>{" "}
                     <span className="text-muted-foreground">
-                      {n.channelName ? `posted in #${n.channelName}` : "sent you a message"}
+                      {describeNotification(n).body}
                     </span>
                     <span className="block text-xs text-muted-foreground">
                       {relativeTime(n.createdAt)}
@@ -126,6 +131,19 @@ export function NotificationBell() {
                   )}
                 </button>
               ))
+            )}
+
+            {/* Only rendered when the server actually has more, so an exhausted
+                list ends cleanly instead of showing a control that does nothing. */}
+            {hasNextPage && (
+              <button
+                type="button"
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="w-full border-t border-border px-3 py-2 text-center text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
+              >
+                {isFetchingNextPage ? "Loading…" : "Show older"}
+              </button>
             )}
           </div>
         </div>

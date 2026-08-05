@@ -55,13 +55,25 @@ describe("notification store reducers", () => {
     expect(next.workspaces[0]).toMatchObject({ notifications: 2 });
   });
 
-  it("prepends a notification, deduping by id", () => {
+  it("prepends into the newest page, deduping across every page", () => {
     const a = notif({ id: "a" });
     const b = notif({ id: "b" });
-    const list = prependNotification([a], b);
-    expect(list.map((n) => n.id)).toEqual(["b", "a"]);
-    // Re-adding an existing id moves it to the front without duplicating.
-    expect(prependNotification(list, a).map((n) => n.id)).toEqual(["a", "b"]);
+    const older = notif({ id: "old" });
+    const paged = (pages: NotificationWire[][]) => ({ pages, pageParams: pages.map(() => undefined) });
+
+    const one = prependNotification(paged([[a], [older]]), b)!;
+    expect(one.pages.map((p) => p.map((n) => n.id))).toEqual([["b", "a"], ["old"]]);
+
+    // An id already held on ANY page moves to the front rather than duplicating —
+    // a live arrival can also come back in a refetched page.
+    const two = prependNotification(one, older)!;
+    expect(two.pages.map((p) => p.map((n) => n.id))).toEqual([["old", "b", "a"], []]);
+  });
+
+  it("leaves an unloaded inbox alone rather than inventing a page", () => {
+    // A synthetic one-item page would read as "nothing older" and hide the real
+    // history behind a tray that thinks it's complete.
+    expect(prependNotification(undefined, notif())).toBeUndefined();
   });
 
   it("bumps a single channel's unread and leaves others untouched", () => {

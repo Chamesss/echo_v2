@@ -286,7 +286,12 @@ export const notifications = pgTable(
     seenAt: timestamp("seen_at", { withTimezone: true }),
     readAt: timestamp("read_at", { withTimezone: true }),
   },
-  (t) => [index("notifications_user_idx").on(t.userId, t.createdAt)],
+  (t) => [
+    index("notifications_user_idx").on(t.userId, t.createdAt),
+    // Access revocation deletes by channel (`deleteChannelNotifications`), which
+    // is otherwise a full scan of a table shared by every workspace.
+    index("notifications_channel_idx").on(t.channelId),
+  ],
 );
 
 /**

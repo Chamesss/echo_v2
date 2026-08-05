@@ -10,13 +10,16 @@ import {
   NotFoundError,
 } from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
+import { revokeWorkspaceNotifications } from "../notifications/notifications.service.js";
 import { invalidateDirectory } from "./directory.service.js";
 
 /**
  * Workspace membership management. The control plane owns the roster
  * (`memberships` + `users`); when someone is removed or leaves, we also strip
- * them from every channel in the workspace's tenant schema so access is revoked
- * everywhere, not just at the workspace boundary.
+ * them from every channel in the workspace's tenant schema and drop their
+ * notifications for the workspace, so access is revoked everywhere, not just at
+ * the workspace boundary. (The workspace itself survives, so nothing cascades on
+ * its behalf — see the LIFECYCLE note in `notifications.service.ts`.)
  *
  * The workspace OWNER (`workspaces.owner_id`) is protected: their role can't be
  * changed and they can't be removed or leave (ownership transfer is a separate,
@@ -137,6 +140,7 @@ export async function removeMember(workspaceId: string, targetUserId: string): P
     .returning({ userId: memberships.userId });
   if (!deleted.length) throw new NotFoundError("Not a member of this workspace", ErrorCode.NotAMember);
   await removeFromAllChannels(workspaceId, targetUserId);
+  await revokeWorkspaceNotifications(workspaceId, targetUserId);
   invalidateDirectory(workspaceId);
   await emitWorkspaceEvent(workspaceId, RealtimeEvents.memberRemoved(targetUserId));
 }
@@ -157,6 +161,7 @@ export async function leaveWorkspace(workspaceId: string, userId: string): Promi
     throw new NotFoundError("You are not a member of this workspace", ErrorCode.NotAMember);
   }
   await removeFromAllChannels(workspaceId, userId);
+  await revokeWorkspaceNotifications(workspaceId, userId);
   invalidateDirectory(workspaceId);
   await emitWorkspaceEvent(workspaceId, RealtimeEvents.memberRemoved(userId));
 }
