@@ -7,21 +7,26 @@ import { useChannelReads, readersOf } from "../api/use-reads";
 /**
  * "Seen by" read-line shown under the latest message. Readers are derived from
  * each member's read cursor (`lastReadSeq >= the message's seq`), minus the
- * viewer and the author. Channels show an avatar stack + names; DMs show "Seen".
- * Renders nothing until someone else has caught up.
+ * viewer and the author. Renders nothing until someone else has caught up.
+ *
+ * `compact` collapses the whole thing to a bare "Seen" — right for a 1:1, where
+ * there is exactly one possible reader so naming them says nothing. Anywhere
+ * with more than one other person (a channel OR a group conversation) needs the
+ * named form: "Seen" alone can't distinguish one reader from five.
  */
 const MAX_AVATARS = 5;
 
 export function SeenBy({
   workspaceId,
   channelId,
-  isDm,
+  compact,
   lastSeq,
   lastAuthorId,
 }: {
   workspaceId: string;
   channelId: string;
-  isDm: boolean;
+  /** Collapse to a bare "Seen" — only correct when one reader is possible. */
+  compact: boolean;
   lastSeq: number;
   lastAuthorId: string;
 }) {
@@ -34,7 +39,7 @@ export function SeenBy({
   const readerIds = readersOf(reads, lastSeq, exclude);
   if (readerIds.length === 0) return null;
 
-  if (isDm) {
+  if (compact) {
     return (
       <div className="flex items-center justify-end gap-1 px-4 pb-1 text-xs text-muted-foreground">
         <Check className="size-3" /> Seen

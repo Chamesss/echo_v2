@@ -19,6 +19,7 @@ import { paths } from "@/lib/paths";
 import { clearLastWorkspaceId } from "@/lib/local-storage";
 import { channelsKey } from "@/features/channels/api/keys";
 import { dmsKey } from "@/features/channels/api/use-dms";
+import { invalidateConversationLists } from "@/features/channels/api/conversation-lists";
 import { myWorkspacesKey } from "@/features/workspaces/api/use-my-workspaces";
 import type { ChannelDTO } from "@/features/channels/api/use-channels";
 import type { DirectMessageDTO } from "@/features/channels/api/use-dms";
@@ -107,8 +108,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const dms = qc.getQueryData<DirectMessageDTO[]>(dmsKey(workspaceId));
       if (channels === undefined && dms === undefined) return;
       if (hasConversation(channels, channelId) || hasConversation(dms, channelId)) return;
-      qc.invalidateQueries({ queryKey: channelsKey(workspaceId) });
-      qc.invalidateQueries({ queryKey: dmsKey(workspaceId) });
+      invalidateConversationLists(qc, workspaceId);
     };
 
     const offEvent = client.onEvent((event) => {
@@ -162,20 +162,25 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       }
 
       // ── Targeted structural events (dual-routed to this user) ─────────────
+      //
+      // These carry only a channelId, so there's no way to tell from the event
+      // whether the conversation belongs to the channel list or the DM list —
+      // and group conversations live in the DM list. Hence
+      // `invalidateConversationLists`, which refreshes both.
       if (event.kind === "channel.added") {
-        // Added to a (private) channel → it appears in my list.
-        qc.invalidateQueries({ queryKey: channelsKey(event.workspaceId) });
+        // Added to a private channel or a group → it appears in my list.
+        invalidateConversationLists(qc, event.workspaceId);
         return;
       }
 
       if (event.kind === "channel.removed") {
-        // Removed from a channel → drop it; bounce me out if I'm viewing it.
-        qc.invalidateQueries({ queryKey: channelsKey(event.workspaceId) });
+        // Removed → drop it; bounce me out if I'm viewing it.
+        invalidateConversationLists(qc, event.workspaceId);
         if (
           window.location.pathname ===
           paths.workspaceChannel(event.workspaceId, event.channelId)
         ) {
-          toast.info("You were removed from this channel");
+          toast.info("You no longer have access to this conversation");
           navigate(paths.workspace(event.workspaceId), { replace: true });
         }
         return;

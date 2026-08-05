@@ -23,14 +23,38 @@ export interface DmParticipant {
 /** A DM is a channel plus its participants; `name` is a label of the others. */
 export interface DirectMessageDTO extends ChannelDTO {
   participants: DmParticipant[];
+  /**
+   * The name the conversation was given, if any — as opposed to `name`, which
+   * falls back to a label built from the participants.
+   *
+   * Exposed separately so the settings form can tell "named Project X" from
+   * "currently displaying Alice, Bob". Without it, opening settings on an
+   * unnamed group and pressing Save would freeze today's participant list as a
+   * permanent title.
+   */
+  customName: string | null;
 }
 
-/** Order-independent key for a participant set. */
+/**
+ * Order-independent key for a participant set — used for 1:1s ONLY.
+ *
+ * It exists to answer "do these two already have a conversation?", and that
+ * question only has an answer while the member set can't change. A 1:1's is
+ * fixed by rule (adding a third person starts a new group instead), so the key
+ * stays truthful forever. A group's doesn't, which is why groups aren't keyed.
+ */
 function dmKey(userIds: string[]): string {
   return [...new Set(userIds)].sort().join(":");
 }
 
-/** Display label = the OTHER participants' names (falls back to all for a self-DM edge). */
+/**
+ * Fallback display label for a conversation with no name of its own: the OTHER
+ * participants' names.
+ *
+ * Falls back to the full set when the caller is the only one left — reachable
+ * when everyone else has left a group, not (as an earlier comment claimed) via a
+ * self-DM, which `openOrCreateDm` rejects outright.
+ */
 function label(participants: DmParticipant[], selfId: string): string {
   const others = participants.filter((p) => p.userId !== selfId);
   return (others.length ? others : participants).map((p) => p.name).join(", ");
@@ -45,6 +69,7 @@ async function buildDmDTO(
   const { rows } = await db.query<{
     id: string;
     type: ChannelDTO["type"];
+    name: string | null;
     topic: string | null;
     archived: boolean;
     created_by: string | null;
@@ -53,7 +78,7 @@ async function buildDmDTO(
     last_read_seq: number | null;
     is_member: boolean;
   }>(
-    `SELECT c.id, c.type, c.topic, c.archived, c.created_by, c.last_seq, c.created_at,
+    `SELECT c.id, c.type, c.name, c.topic, c.archived, c.created_by, c.last_seq, c.created_at,
             cm.last_read_seq, (cm.user_id IS NOT NULL) AS is_member
        FROM channels c
        LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2
@@ -73,7 +98,12 @@ async function buildDmDTO(
   return {
     id: c.id,
     type: c.type,
-    name: label(participants, selfId),
+    // A group may carry a name of its own; otherwise it's labelled by who's in
+    // it. Selecting `c.name` is what makes a group rename readable — without it
+    // the stored value was overwritten here on every read, so renaming a group
+    // persisted and then vanished.
+    name: c.name ?? label(participants, selfId),
+    customName: c.name,
     topic: c.topic,
     archived: c.archived,
     createdBy: c.created_by,
@@ -86,8 +116,20 @@ async function buildDmDTO(
 }
 
 /**
- * Open (or create) a DM with the given other users. Idempotent on the
- * participant set. All participants must be members of the workspace.
+ * Open a 1:1, or create a group conversation.
+ *
+ * The two halves behave differently on purpose:
+ *
+ *   - **1:1** is idempotent on the participant pair. Its member set can never
+ *     change (adding a third person creates a group instead), so `dm_key`
+ *     identifies it for good and picking the same person twice always lands in
+ *     the same conversation.
+ *   - **Group** is not keyed and always creates. Its membership is mutable and
+ *     it can be renamed, so it is its own entity rather than a function of who
+ *     started in it — two separate groups with the same people is legitimate,
+ *     and a key would go stale the moment anyone joined or left.
+ *
+ * All participants must be members of the workspace.
  */
 export async function openOrCreateDm(
   workspaceId: string,
@@ -98,8 +140,9 @@ export async function openOrCreateDm(
   if (participants.length < 2) {
     throw new BadRequestError("A direct message needs at least one other person", ErrorCode.BadRequest);
   }
-  const key = dmKey(participants);
-  const type = participants.length === 2 ? "direct" : "group";
+  const isDirect = participants.length === 2;
+  const type = isDirect ? "direct" : "group";
+  const key = isDirect ? dmKey(participants) : null;
 
   const { dto, created } = await withTenantSchema(workspaceId, async (db) => {
     // Every participant must be a workspace member (public.memberships via search_path).
@@ -111,24 +154,41 @@ export async function openOrCreateDm(
       throw new NotFoundError("All participants must be workspace members", ErrorCode.NotAMember);
     }
 
-    // Open-or-create: the dm_key unique index makes this safe under concurrency.
-    // A returned row means we created it (vs. resolving an existing DM) — only a
-    // brand-new DM should notify the other participants.
-    const inserted = await db.query<{ id: string }>(
-      `INSERT INTO channels (type, dm_key, created_by) VALUES ($1, $2, $3)
-       ON CONFLICT (dm_key) DO NOTHING RETURNING id`,
-      [type, key, creatorId],
-    );
-    const wasCreated = inserted.rows.length > 0;
-    const channelId =
-      inserted.rows[0]?.id ??
-      (await db.query<{ id: string }>(`SELECT id FROM channels WHERE dm_key = $1`, [key])).rows[0]!
-        .id;
+    let channelId: string;
+    let wasCreated: boolean;
 
-    // Seed/ensure membership for all participants (idempotent).
+    if (key === null) {
+      // Group: never resolves to an existing row.
+      const { rows } = await db.query<{ id: string }>(
+        `INSERT INTO channels (type, created_by) VALUES ($1, $2) RETURNING id`,
+        [type, creatorId],
+      );
+      channelId = rows[0]!.id;
+      wasCreated = true;
+    } else {
+      // 1:1 open-or-create. The dm_key unique index makes this safe under
+      // concurrency; a returned row means we created it rather than resolved
+      // one, and only a brand-new conversation notifies the other participant.
+      const inserted = await db.query<{ id: string }>(
+        `INSERT INTO channels (type, dm_key, created_by) VALUES ($1, $2, $3)
+         ON CONFLICT (dm_key) DO NOTHING RETURNING id`,
+        [type, key, creatorId],
+      );
+      wasCreated = inserted.rows.length > 0;
+      channelId =
+        inserted.rows[0]?.id ??
+        (await db.query<{ id: string }>(`SELECT id FROM channels WHERE dm_key = $1`, [key]))
+          .rows[0]!.id;
+    }
+
+    // Seed/ensure membership for all participants (idempotent). `last_read_seq`
+    // starts at the channel's current clock so pre-existing history isn't
+    // "unread" — matching `joinChannel` and `addChannelMember`. It only differs
+    // from 0 when someone rejoins a 1:1 they'd previously been removed from.
     await db.query(
-      `INSERT INTO channel_members (channel_id, user_id)
-       SELECT $1, unnest($2::text[]) ON CONFLICT (channel_id, user_id) DO NOTHING`,
+      `INSERT INTO channel_members (channel_id, user_id, last_read_seq)
+       SELECT $1, unnest($2::text[]), (SELECT last_seq FROM channels WHERE id = $1)
+       ON CONFLICT (channel_id, user_id) DO NOTHING`,
       [channelId, participants],
     );
 

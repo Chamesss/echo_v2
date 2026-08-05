@@ -12,7 +12,8 @@ import { myWorkspacesKey } from "@/features/workspaces/api/use-my-workspaces";
 import { workspaceKey } from "@/features/workspaces/api/use-workspace";
 import { directoryKey, invitesKey, membersKey, presenceKey } from "@/features/members/api/keys";
 import type { PresenceResponse } from "@/features/members/api/use-presence";
-import { channelsKey, channelMembersKey } from "@/features/channels/api/keys";
+import { channelMembersKey } from "@/features/channels/api/keys";
+import { invalidateConversationLists } from "@/features/channels/api/conversation-lists";
 import type { EchoMessage } from "@/features/channels/realtime/message-cache";
 
 /**
@@ -76,13 +77,21 @@ export function useWorkspaceEvents() {
         // The event carries only the id; re-read the (visibility-scoped) list so
         // a new public channel appears, a rename/topic/archive/member-set change
         // reflects, and a deletion drops it — the DB stays the source of truth.
+        //
+        // BOTH conversation lists, because the id alone doesn't say which one it
+        // belongs to and a GROUP lives in the DM list. That list is also the only
+        // source of `participants` — the avatars and names in the sidebar stack,
+        // the conversation header and its member count. Invalidating just
+        // `channelsKey` refreshed the settings dialog's roster (a separate key)
+        // while every avatar surface kept rendering the old member set until a
+        // reload.
         case "channel.created":
         case "channel.updated":
-          qc.invalidateQueries({ queryKey: channelsKey(workspaceId) });
+          invalidateConversationLists(qc, workspaceId);
           qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, event.channelId) });
           break;
         case "channel.deleted":
-          qc.invalidateQueries({ queryKey: channelsKey(workspaceId) });
+          invalidateConversationLists(qc, workspaceId);
           // If I'm currently viewing the deleted channel, don't strand me on a
           // "not found" view — bounce to the workspace home.
           if (
@@ -117,6 +126,19 @@ export function useWorkspaceEvents() {
             // Someone else departed: withhold their messages in every loaded
             // channel, matching what the server now returns on a fresh read.
             withholdAuthorMessages(qc, workspaceId, event.userId);
+            // Leaving the workspace cascades to `channel_members`, so they drop
+            // out of every conversation they were in — same staleness as a
+            // per-channel removal, and the same fix. Only the member-shaped
+            // caches: the message timelines were just reconciled locally above,
+            // and refetching them would discard paged-in history for nothing.
+            invalidateConversationLists(qc, workspaceId);
+            qc.invalidateQueries({
+              predicate: (q) =>
+                q.queryKey[0] === "ws" &&
+                q.queryKey[1] === workspaceId &&
+                q.queryKey[2] === "channel" &&
+                q.queryKey[4] === "members",
+            });
           } else if (event.kind === "member.added") {
             // A (re)joining member's messages may have been withheld; the real
             // bodies live only on the server, so refetch to restore them.

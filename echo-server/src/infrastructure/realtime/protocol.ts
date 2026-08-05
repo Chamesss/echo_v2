@@ -147,6 +147,15 @@ export type ChannelEvent =
  *   - `channel.created`     — a new channel exists (public appears for everyone).
  *   - `channel.updated`     — name/topic/archived/member-set changed; re-read it.
  *   - `channel.deleted`     — channel removed; drop it (and leave it if open).
+ *   - `channel.member_removed` — a specific user lost access to a channel. Unlike
+ *                             `channel.removed` (user socket) this is
+ *                             workspace-scoped, so EVERY instance sees it and can
+ *                             revoke that user's live subscription locally. The
+ *                             two sockets are separate connections that a load
+ *                             balancer may place on different instances, so the
+ *                             user-scoped event can't be used to fix
+ *                             workspace-socket state. Carries no payload beyond
+ *                             the ids — clients re-read as for `channel.updated`.
  *   - `workspace.updated`   — the workspace was renamed; re-read its name.
  *   - `directory.updated`   — a member changed their name/avatar; re-read the
  *                             directory (so author names/avatars refresh live).
@@ -158,6 +167,7 @@ export type WorkspaceEvent =
   | { kind: "channel.created"; channelId: string }
   | { kind: "channel.updated"; channelId: string }
   | { kind: "channel.deleted"; channelId: string }
+  | { kind: "channel.member_removed"; channelId: string; userId: string }
   | { kind: "workspace.updated" }
   | { kind: "directory.updated" }
   | { kind: "presence.changed"; userId: string; online: boolean };

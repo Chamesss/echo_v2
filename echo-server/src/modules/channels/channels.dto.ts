@@ -22,10 +22,15 @@ export type CreateChannelBody = z.infer<typeof createChannelBody>;
  * Channel update (rename / set topic / archive). All fields optional, but at
  * least one must be present — an empty PATCH is a 400, not a silent no-op.
  * `topic` accepts an empty string to clear it.
+ *
+ * `name` accepts null to CLEAR it, which only makes sense for a group
+ * conversation: it has no name of its own by default and falls back to a label
+ * built from who's in it, so clearing is how you get that default back. A named
+ * channel can't be left nameless — the service rejects null for those types.
  */
 export const updateChannelBody = z
   .object({
-    name: z.string().trim().min(1).max(80).optional(),
+    name: z.string().trim().min(1).max(80).nullable().optional(),
     topic: z.string().trim().max(280).optional(),
     archived: z.boolean().optional(),
   })

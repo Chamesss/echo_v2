@@ -54,6 +54,16 @@ export const RealtimeEvents = {
   channelCreated: (channelId: string): WorkspaceEvent => ({ kind: "channel.created", channelId }),
   channelUpdated: (channelId: string): WorkspaceEvent => ({ kind: "channel.updated", channelId }),
   channelDeleted: (channelId: string): WorkspaceEvent => ({ kind: "channel.deleted", channelId }),
+  /**
+   * A user lost access to a channel. Workspace-scoped on purpose: the hub uses
+   * it to revoke that user's live subscription on whichever instance holds
+   * their workspace socket (see `hub.revokeChannel`).
+   */
+  channelMemberRemoved: (channelId: string, userId: string): WorkspaceEvent => ({
+    kind: "channel.member_removed",
+    channelId,
+    userId,
+  }),
   workspaceUpdated: (): WorkspaceEvent => ({ kind: "workspace.updated" }),
   directoryUpdated: (): WorkspaceEvent => ({ kind: "directory.updated" }),
 } as const;

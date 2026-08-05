@@ -339,7 +339,11 @@ async function fanOutAwareness(
       const created = await createMessageNotifications(notifiable, {
         workspaceId,
         channelId,
-        channelName: isDm ? null : channelName,
+        // A 1:1 is identified by its sender, so a name would be redundant. A
+        // named group is not — without this its toast read "Sent you a message"
+        // with no clue which conversation it came from. An unnamed group still
+        // sends null and falls back to that generic copy.
+        channelName: channelType === "direct" ? null : channelName,
         messageId: message.id,
         actorId: authorId,
         type: isDm ? "dm" : "message",

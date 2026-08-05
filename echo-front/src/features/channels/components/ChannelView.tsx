@@ -4,7 +4,11 @@ import { Hash, Lock, Settings, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isTabVisible } from "@/lib/visibility";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
-import { useChannels, useJoinChannel, type ChannelDTO } from "../api/use-channels";
+import {
+  useChannels,
+  useJoinChannel,
+  type ChannelDTO,
+} from "../api/use-channels";
 import { useDirectMessages, type DirectMessageDTO } from "../api/use-dms";
 import { useMarkRead, useMessages } from "../api/use-messages";
 import { useMarkRead as useMarkNotificationsRead } from "@/features/notifications/api/use-notifications";
@@ -25,39 +29,56 @@ import { TypingIndicator } from "./TypingIndicator";
  */
 export function ChannelView({ channelId }: { channelId: string }) {
   const workspace = useCurrentWorkspace();
-  const { data: channels, isPending: channelsPending } = useChannels(workspace.id);
+  const { data: channels, isPending: channelsPending } = useChannels(
+    workspace.id,
+  );
   const { data: dms, isPending: dmsPending } = useDirectMessages(workspace.id);
   const join = useJoinChannel(workspace.id);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const channel =
-    channels?.find((c) => c.id === channelId) ?? dms?.find((d) => d.id === channelId);
+    channels?.find((c) => c.id === channelId) ??
+    dms?.find((d) => d.id === channelId);
 
   if (!channel) {
-    if (channelsPending || dmsPending) return <Centered>Loading channel…</Centered>;
+    if (channelsPending || dmsPending)
+      return <Centered>Loading channel…</Centered>;
     return <Centered>Channel not found.</Centered>;
   }
 
-  const isDm = channel.type === "direct" || channel.type === "group";
+  // Deliberately NOT one `isDm` flag. A 1:1 is fixed — no name, no topic, no
+  // member list, nothing to manage. A group is a conversation you own: it can
+  // be renamed and its members can change. Folding the two together is what hid
+  // the settings gear from groups and reduced their read receipts to "Seen".
+  const isDirect = channel.type === "direct";
+  const isGroup = channel.type === "group";
+  // Only the DM list carries participants, and only these two types come from
+  // it. `DirectMessageDTO extends ChannelDTO`, so the union collapses and `in`
+  // narrowing can't see the field — the type discriminant is the reliable test.
+  const conversation = isDirect || isGroup ? (channel as DirectMessageDTO) : null;
+  const memberCount = conversation?.participants.length ?? null;
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
-        {isDm ? (
+        {isDirect || isGroup ? (
           <Users className="size-4" />
         ) : channel.type === "private" ? (
           <Lock className="size-4" />
         ) : (
           <Hash className="size-4" />
         )}
-        <span className="font-semibold text-foreground">{channel.name}</span>
+        <span className="truncate font-semibold text-foreground">{channel.name}</span>
+        {isGroup && memberCount !== null && (
+          <span className="shrink-0 text-xs text-muted-foreground">{memberCount}</span>
+        )}
         {channel.topic && (
           <span className="ml-1 hidden truncate border-l border-border pl-3 text-sm text-muted-foreground sm:block">
             {channel.topic}
           </span>
         )}
-        {/* DMs aren't renameable/archivable, so no settings gear for them. */}
-        {channel.isMember && !isDm && (
+        {/* A 1:1 has nothing to configure; everything else does. */}
+        {channel.isMember && !isDirect && (
           <Button
             variant="ghost"
             size="sm"
@@ -70,8 +91,11 @@ export function ChannelView({ channelId }: { channelId: string }) {
         )}
       </header>
 
-      {settingsOpen && !isDm && (
-        <ChannelSettingsDialog channel={channel} onClose={() => setSettingsOpen(false)} />
+      {settingsOpen && !isDirect && (
+        <ChannelSettingsDialog
+          channel={channel}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
 
       {channel.isMember ? (
@@ -83,7 +107,9 @@ export function ChannelView({ channelId }: { channelId: string }) {
             size="sm"
             disabled={join.isPending}
             onClick={() =>
-              join.mutate(channel.id, { onError: (err) => toast.error(err.message) })
+              join.mutate(channel.id, {
+                onError: (err) => toast.error(err.message),
+              })
             }
           >
             {join.isPending ? "Joining…" : "Join channel"}
@@ -94,9 +120,16 @@ export function ChannelView({ channelId }: { channelId: string }) {
   );
 }
 
-function ChannelMessages({ channel }: { channel: ChannelDTO | DirectMessageDTO }) {
+function ChannelMessages({
+  channel,
+}: {
+  channel: ChannelDTO | DirectMessageDTO;
+}) {
   const workspace = useCurrentWorkspace();
-  const { data: messages = [], isPending } = useMessages(workspace.id, channel.id);
+  const { data: messages = [], isPending } = useMessages(
+    workspace.id,
+    channel.id,
+  );
   const markRead = useMarkRead(workspace.id, channel.id);
   const markNotificationsRead = useMarkNotificationsRead();
   const lastMarked = useRef(0);

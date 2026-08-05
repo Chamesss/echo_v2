@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 
 /**
@@ -33,7 +33,9 @@ const { openOrCreateDm } = await import("../../src/modules/channels/dm.service.j
 const { removeMember, leaveWorkspace } = await import(
   "../../src/modules/members/members.service.js"
 );
-const { addMember, createUser, createWorkspace, destroyWorkspace } = await import(
+const { removeChannelMember } = await import("../../src/modules/channels/channels.service.js");
+const { addChannelMember } = await import("../../src/modules/channels/channels.service.js");
+const { addMember, createUser, createWorkspace, destroyWorkspace, makeChannel } = await import(
   "../factories.js"
 );
 const { waitFor } = await import("../helpers/ws-client.js");
@@ -54,6 +56,13 @@ beforeAll(async () => {
   port = (server.address() as AddressInfo).port;
 });
 
+afterEach(() => {
+  // `server.close()` waits for every open connection, so one socket left behind
+  // by a failing assertion hangs teardown for the whole file rather than just
+  // failing that test.
+  for (const c of openClients.splice(0)) c.socket.terminate();
+});
+
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   if (ws) await destroyWorkspace(ws);
@@ -67,6 +76,9 @@ interface RawClient {
   closeCode: number | null;
   events: () => Array<Record<string, unknown>>;
 }
+
+/** Every client opened by a test, so teardown can't be blocked by a leak. */
+const openClients: RawClient[] = [];
 
 /**
  * A socket that ignores everything it is told and just keeps reading — the
@@ -93,10 +105,18 @@ async function rawClient(userId: string, channelId: string): Promise<RawClient> 
   socket.on("error", () => {
     /* surfaced via close */
   });
+  openClients.push(client);
 
-  await waitFor(() => socket.readyState === WebSocket.OPEN, { label: "socket open" });
+  await waitFor(() => socket.readyState === WebSocket.OPEN, {
+    timeoutMs: 20_000,
+    label: "socket open",
+  });
   socket.send(JSON.stringify({ t: "subscribe", channelIds: [channelId] }));
+  // `subscribe` re-checks channel access against the database, so this waits on
+  // a real round-trip — generous, because a slow database shouldn't read as a
+  // broken authorization path.
   await waitFor(() => client.frames.some((f) => f.t === "subscribed"), {
+    timeoutMs: 20_000,
     label: "subscription confirmed",
   });
   return client;
@@ -110,6 +130,20 @@ async function memberWithChannel() {
   return { user, channelId: channel.id };
 }
 
+/**
+ * A fresh member of a private CHANNEL.
+ *
+ * Channel-level removal can't be exercised on a DM: a 1:1's participants are
+ * fixed for its whole life, so `removeChannelMember` rejects it outright.
+ */
+async function memberOfPrivateChannel() {
+  const user = await createUser();
+  await addMember(ws.workspaceId, user.id, "member");
+  const channel = await makeChannel(ws.workspaceId, owner.id, "private", `p-${randomUUID().slice(0, 8)}`);
+  await addChannelMember(ws.workspaceId, channel.id, owner.id, user.id);
+  return { user, channelId: channel.id };
+}
+
 describe("a member removed while their socket is open", () => {
   it("is disconnected with a policy code", async () => {
     const { user, channelId } = await memberWithChannel();
@@ -118,7 +152,7 @@ describe("a member removed while their socket is open", () => {
 
     await removeMember(ws.workspaceId, user.id);
 
-    await waitFor(() => client.closeCode !== null, { label: "server to hang up" });
+    await waitFor(() => client.closeCode !== null, { timeoutMs: 20_000, label: "server to hang up" });
     // 4403 is a policy close: the client treats it as permanent and does not retry.
     expect(client.closeCode).toBe(4403);
   });
@@ -128,7 +162,7 @@ describe("a member removed while their socket is open", () => {
     const client = await rawClient(user.id, channelId);
 
     await removeMember(ws.workspaceId, user.id);
-    await waitFor(() => client.closeCode !== null, { label: "server to hang up" });
+    await waitFor(() => client.closeCode !== null, { timeoutMs: 20_000, label: "server to hang up" });
 
     // Delivery precedes eviction so a cooperative client can react gracefully;
     // the disconnect happens either way.
@@ -151,7 +185,7 @@ describe("a member removed while their socket is open", () => {
     });
 
     await removeMember(ws.workspaceId, user.id);
-    await waitFor(() => client.closeCode !== null, { label: "server to hang up" });
+    await waitFor(() => client.closeCode !== null, { timeoutMs: 20_000, label: "server to hang up" });
     const seenAtRemoval = client.events().filter((e) => e.kind === "message.created").length;
 
     await sendMessage(ws.workspaceId, channelId, owner.id, {
@@ -169,7 +203,7 @@ describe("a member removed while their socket is open", () => {
     const { user, channelId } = await memberWithChannel();
     const client = await rawClient(user.id, channelId);
     await removeMember(ws.workspaceId, user.id);
-    await waitFor(() => client.closeCode !== null, { label: "server to hang up" });
+    await waitFor(() => client.closeCode !== null, { timeoutMs: 20_000, label: "server to hang up" });
 
     // The handshake check is the backstop behind the eviction.
     session.current = { user: { id: user.id } };
@@ -191,11 +225,46 @@ describe("a member removed while their socket is open", () => {
     const leavingClient = await rawClient(leaving.user.id, leaving.channelId);
 
     await removeMember(ws.workspaceId, leaving.user.id);
-    await waitFor(() => leavingClient.closeCode !== null, { label: "removed user hung up" });
+    await waitFor(() => leavingClient.closeCode !== null, { timeoutMs: 20_000, label: "removed user hung up" });
 
     expect(stayingClient.closeCode).toBeNull();
     expect(stayingClient.socket.readyState).toBe(WebSocket.OPEN);
     stayingClient.socket.close();
+  });
+});
+
+describe("a member removed from one channel", () => {
+  it("stops receiving that channel's messages while staying connected", async () => {
+    // Narrower than workspace removal: they're still in the workspace, so the
+    // socket stays open — it just stops being a subscriber. Before this, the
+    // subscription outlived the membership and the only thing that ended it was
+    // the removed user's own client choosing to unsubscribe.
+    const { user, channelId } = await memberOfPrivateChannel();
+    const client = await rawClient(user.id, channelId);
+
+    await sendMessage(ws.workspaceId, channelId, owner.id, {
+      clientId: randomUUID(),
+      body: "before removal",
+    });
+    await waitFor(() => client.events().some((e) => e.kind === "message.created"), {
+      label: "pre-removal message",
+    });
+    const seenBefore = client.events().filter((e) => e.kind === "message.created").length;
+
+    // Removed from the channel, but NOT from the workspace.
+    await removeChannelMember(ws.workspaceId, channelId, { userId: owner.id, isWorkspaceAdmin: true }, user.id);
+    await new Promise((r) => setTimeout(r, 1_000));
+
+    await sendMessage(ws.workspaceId, channelId, owner.id, {
+      clientId: randomUUID(),
+      body: "after removal — must not reach them",
+    });
+    await new Promise((r) => setTimeout(r, 1_000));
+
+    expect(client.events().filter((e) => e.kind === "message.created")).toHaveLength(seenBefore);
+    // Still connected — this isn't an eviction.
+    expect(client.closeCode).toBeNull();
+    client.socket.close();
   });
 });
 
@@ -208,7 +277,7 @@ describe("a member who leaves voluntarily", () => {
 
     await leaveWorkspace(ws.workspaceId, user.id);
 
-    await waitFor(() => client.closeCode !== null, { label: "server to hang up" });
+    await waitFor(() => client.closeCode !== null, { timeoutMs: 20_000, label: "server to hang up" });
     expect(client.closeCode).toBe(4403);
   });
 });

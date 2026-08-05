@@ -206,6 +206,77 @@ describe("RealtimeHub routing", () => {
     expect(awareness.closes).toHaveLength(0);
   });
 
+  it("revokes one channel subscription without closing the socket", async () => {
+    // The narrower sibling of eviction: they're still in the workspace, so the
+    // connection stays — it just stops being a subscriber of that channel.
+    // Without this the subscription outlived the membership that justified it,
+    // and the only thing that ended it was the removed user's own client
+    // choosing to unsubscribe.
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const removed = fakeSocket();
+    const stays = fakeSocket();
+    hub.add(removed.ws, { userId: "ux", workspaceId: "w1" });
+    hub.add(stays.ws, { userId: "ua", workspaceId: "w1" });
+    hub.subscribe(removed.ws, "c1");
+    hub.subscribe(stays.ws, "c1");
+
+    await hub.publish("w1", { kind: "channel.member_removed", channelId: "c1", userId: "ux" });
+    const seenAtRevocation = removed.events().length;
+
+    await hub.publish("w1", {
+      kind: "message.created",
+      channelId: "c1",
+      updatedSeq: 1,
+      message: message("c1"),
+    });
+
+    expect(removed.events()).toHaveLength(seenAtRevocation); // no new messages
+    expect(removed.closes).toEqual([]); // but still connected
+    expect(stays.events().length).toBeGreaterThan(seenAtRevocation);
+  });
+
+  it("leaves that user's OTHER channel subscriptions alone", async () => {
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const ws1 = fakeSocket();
+    hub.add(ws1.ws, { userId: "ux", workspaceId: "w1" });
+    hub.subscribe(ws1.ws, "c1");
+    hub.subscribe(ws1.ws, "c2");
+
+    await hub.publish("w1", { kind: "channel.member_removed", channelId: "c1", userId: "ux" });
+    const before = ws1.events().length;
+
+    await hub.publish("w1", {
+      kind: "message.created",
+      channelId: "c2",
+      updatedSeq: 1,
+      message: message("c2"),
+    });
+
+    expect(ws1.events().length).toBeGreaterThan(before);
+  });
+
+  it("revokes only the named user, not the whole channel", async () => {
+    const hub = new RealtimeHub(new LoopbackBackplane());
+    const removed = fakeSocket();
+    const kept = fakeSocket();
+    hub.add(removed.ws, { userId: "ux", workspaceId: "w1" });
+    hub.add(kept.ws, { userId: "ua", workspaceId: "w1" });
+    hub.subscribe(removed.ws, "c1");
+    hub.subscribe(kept.ws, "c1");
+
+    await hub.publish("w1", { kind: "channel.member_removed", channelId: "c1", userId: "ux" });
+    const keptBefore = kept.events().length;
+
+    await hub.publish("w1", {
+      kind: "message.created",
+      channelId: "c1",
+      updatedSeq: 2,
+      message: message("c1"),
+    });
+
+    expect(kept.events().length).toBeGreaterThan(keptBefore);
+  });
+
   it("delivers a channel event only to that channel's subscribers", async () => {
     const hub = new RealtimeHub(new LoopbackBackplane());
     const a = fakeSocket();

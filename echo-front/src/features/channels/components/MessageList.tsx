@@ -33,7 +33,10 @@ export function MessageList({
   messages: EchoMessage[];
 }) {
   const channelId = channel.id;
-  const isDm = channel.type === "direct" || channel.type === "group";
+  // Only a 1:1 gets the collapsed "Seen" receipt: there's exactly one other
+  // person, so naming them adds nothing. A group has several readers, and which
+  // of them has caught up is the whole point.
+  const isDirect = channel.type === "direct";
   const workspace = useCurrentWorkspace();
   const { data: session } = useSession();
   const myId = session?.user.id;
@@ -165,7 +168,7 @@ export function MessageList({
         <SeenBy
           workspaceId={workspace.id}
           channelId={channelId}
-          isDm={isDm}
+          compact={isDirect}
           lastSeq={lastReal.seq}
           lastAuthorId={lastReal.authorId}
         />

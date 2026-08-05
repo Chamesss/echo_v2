@@ -19,8 +19,11 @@ import { workspaces, memberships, tenantCatalog } from '../database/control/sche
  * v3: channel management — `channels` gains `topic`, `archived`, `created_by`.
  * v4: attachments — `attachments` gains s3_key/filename/content_type/size_bytes/
  *     category/created_at + a message index (Sprint 7 file manager).
+ * v5: group conversations — backfills the `dm_key` column and the four-value
+ *     `type` CHECK that the DM feature added to init.sql without a migration,
+ *     and unkeys groups (their member set is mutable, so it can't identify them).
  */
-export const TENANT_SCHEMA_VERSION = 4;
+export const TENANT_SCHEMA_VERSION = 5;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TENANT_INIT_SQL_PATH = path.resolve(__dirname, '../database/tenant/init.sql');

@@ -9,6 +9,7 @@ import { useSession } from "@/lib/auth-client";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
 import { useMembers } from "@/features/members/api/use-members";
 import type { ChannelDTO } from "../api/use-channels";
+import type { DirectMessageDTO } from "../api/use-dms";
 import {
   useAddChannelMember,
   useChannelMembers,
@@ -28,13 +29,31 @@ export function ChannelSettingsDialog({
   channel,
   onClose,
 }: {
-  channel: ChannelDTO;
+  channel: ChannelDTO | DirectMessageDTO;
   onClose: () => void;
 }) {
   const workspace = useCurrentWorkspace();
   const navigate = useNavigate();
   const { data: session } = useSession();
-  const canManage = workspace.role === "admin" || channel.createdBy === session?.user.id;
+  const myId = session?.user.id;
+
+  const isGroup = channel.type === "group";
+
+  /**
+   * Who may change this.
+   *
+   * A channel is an organisational object, so a workspace admin owns it whether
+   * or not they joined. A group conversation is not — it belongs to the people
+   * in it, and a workspace role grants nothing. The server enforces the same
+   * split; this only decides what to render.
+   */
+  const canManage = isGroup
+    ? channel.isMember
+    : workspace.role === "admin" || channel.createdBy === myId;
+
+  // No per-channel roles exist, so the person who started a group is its only
+  // authority for evicting someone else. Anyone can still leave.
+  const canRemoveOthers = isGroup ? channel.createdBy === myId : canManage;
 
   // Close on Escape for keyboard users.
   useEffect(() => {
@@ -62,7 +81,9 @@ export function ChannelSettingsDialog({
         aria-label="Channel settings"
       >
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-          <h2 className="font-semibold text-foreground">Channel settings</h2>
+          <h2 className="font-semibold text-foreground">
+            {isGroup ? "Conversation settings" : "Channel settings"}
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -74,16 +95,28 @@ export function ChannelSettingsDialog({
         </header>
 
         <div className="space-y-6 overflow-y-auto p-4">
-          {canManage && <DetailsSection channel={channel} />}
+          {canManage && <DetailsSection channel={channel} isGroup={isGroup} />}
 
-          {channel.type === "private" && (
-            <MembersSection channel={channel} canManage={canManage} />
+          {(channel.type === "private" || isGroup) && (
+            <MembersSection
+              channel={channel}
+              canAdd={canManage}
+              canRemove={canRemoveOthers}
+              isGroup={isGroup}
+            />
           )}
 
-          <LeaveSection channelId={channel.id} onLeft={goHome} />
+          <LeaveSection channelId={channel.id} isGroup={isGroup} onLeft={goHome} />
 
-          {canManage && (
-            <DangerSection channel={channel} onArchived={goHome} onDeleted={goHome} />
+          {/* No danger zone for a conversation: archiving would hide it from
+              everyone with no way back, and deleting is blocked server-side.
+              Leaving is the exit. */}
+          {canManage && !isGroup && (
+            <DangerSection
+              channel={channel}
+              onArchived={goHome}
+              onDeleted={goHome}
+            />
           )}
         </div>
       </div>
@@ -99,24 +132,41 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function DetailsSection({ channel }: { channel: ChannelDTO }) {
+function DetailsSection({
+  channel,
+  isGroup,
+}: {
+  channel: ChannelDTO | DirectMessageDTO;
+  isGroup: boolean;
+}) {
   const workspace = useCurrentWorkspace();
   const update = useUpdateChannel(workspace.id);
-  const [name, setName] = useState(channel.name ?? "");
+
+  // A group's `name` is a DERIVED label when it hasn't been given one, so the
+  // form edits `customName` and shows the label as a placeholder. Editing
+  // `name` directly would turn "currently showing Alice, Bob" into a real
+  // title the moment anyone pressed Save.
+  const stored = isGroup ? ((channel as DirectMessageDTO).customName ?? "") : (channel.name ?? "");
+  const [name, setName] = useState(stored);
   const [topic, setTopic] = useState(channel.topic ?? "");
 
-  const dirty = name.trim() !== (channel.name ?? "") || topic.trim() !== (channel.topic ?? "");
+  const dirty = name.trim() !== stored || topic.trim() !== (channel.topic ?? "");
 
   const save = () => {
     const trimmed = name.trim();
-    if (!trimmed) {
+    if (!trimmed && !isGroup) {
       toast.error("Name can't be empty");
       return;
     }
     update.mutate(
-      { channelId: channel.id, name: trimmed, topic: topic.trim() },
       {
-        onSuccess: () => toast.success("Channel updated"),
+        channelId: channel.id,
+        // Empty on a group clears it, restoring the participant label.
+        name: trimmed || null,
+        topic: topic.trim(),
+      },
+      {
+        onSuccess: () => toast.success(isGroup ? "Conversation updated" : "Channel updated"),
         onError: (err) => toast.error(err.message),
       },
     );
@@ -127,11 +177,19 @@ function DetailsSection({ channel }: { channel: ChannelDTO }) {
       <SectionTitle>Details</SectionTitle>
       <div className="space-y-3">
         <div>
-          <label className="mb-1 block text-sm text-muted-foreground">Name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />
+          <label className="mb-1 block text-sm text-muted-foreground">
+            Name
+          </label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={80}
+          />
         </div>
         <div>
-          <label className="mb-1 block text-sm text-muted-foreground">Topic</label>
+          <label className="mb-1 block text-sm text-muted-foreground">
+            Topic
+          </label>
           <Input
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
@@ -147,7 +205,19 @@ function DetailsSection({ channel }: { channel: ChannelDTO }) {
   );
 }
 
-function MembersSection({ channel, canManage }: { channel: ChannelDTO; canManage: boolean }) {
+function MembersSection({
+  channel,
+  canAdd,
+  canRemove,
+  isGroup,
+}: {
+  channel: ChannelDTO | DirectMessageDTO;
+  /** Any member may bring someone in. */
+  canAdd: boolean;
+  /** Evicting someone else is narrower — see `canRemoveOthers`. */
+  canRemove: boolean;
+  isGroup: boolean;
+}) {
   const workspace = useCurrentWorkspace();
   const { data: members = [] } = useChannelMembers(workspace.id, channel.id);
   const { data: roster = [] } = useMembers(workspace.id);
@@ -171,41 +241,53 @@ function MembersSection({ channel, canManage }: { channel: ChannelDTO; canManage
 
   return (
     <section>
-      <SectionTitle>Members</SectionTitle>
-      <div className="mb-3 flex gap-2">
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          <option value="">Add a member…</option>
-          {candidates.map((m) => (
-            <option key={m.userId} value={m.userId}>
-              {m.name} ({m.email})
-            </option>
-          ))}
-        </select>
-        <Button size="sm" disabled={!selected || add.isPending} onClick={handleAdd}>
-          Add
-        </Button>
-      </div>
+      <SectionTitle>{isGroup ? "People" : "Members"}</SectionTitle>
+      {canAdd && (
+        <div className="mb-3 flex gap-2">
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            aria-label={isGroup ? "Add someone to this conversation" : "Add a member"}
+            className="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="">{isGroup ? "Add someone…" : "Add a member…"}</option>
+            {candidates.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {m.name} ({m.email})
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            disabled={!selected || add.isPending}
+            onClick={handleAdd}
+          >
+            Add
+          </Button>
+        </div>
+      )}
       <ul className="divide-y divide-border rounded-md border border-border">
         {members.map((m) => (
-          <li key={m.userId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+          <li
+            key={m.userId}
+            className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
+          >
             <span className="min-w-0 truncate">
               <span className="font-medium text-foreground">{m.name}</span>{" "}
               <span className="text-muted-foreground">{m.email}</span>
             </span>
-            {canManage && (
+            {canRemove && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="text-destructive hover:text-destructive"
                 disabled={remove.isPending}
-                title="Remove from channel"
+                title={isGroup ? "Remove from conversation" : "Remove from channel"}
                 aria-label={`Remove ${m.name}`}
                 onClick={() =>
-                  remove.mutate(m.userId, { onError: (err) => toast.error(err.message) })
+                  remove.mutate(m.userId, {
+                    onError: (err) => toast.error(err.message),
+                  })
                 }
               >
                 <UserMinus className="size-4" />
@@ -218,7 +300,15 @@ function MembersSection({ channel, canManage }: { channel: ChannelDTO; canManage
   );
 }
 
-function LeaveSection({ channelId, onLeft }: { channelId: string; onLeft: () => void }) {
+function LeaveSection({
+  channelId,
+  isGroup,
+  onLeft,
+}: {
+  channelId: string;
+  isGroup: boolean;
+  onLeft: () => void;
+}) {
   const workspace = useCurrentWorkspace();
   const leave = useLeaveChannel(workspace.id);
   return (
@@ -231,14 +321,14 @@ function LeaveSection({ channelId, onLeft }: { channelId: string; onLeft: () => 
         onClick={() =>
           leave.mutate(channelId, {
             onSuccess: () => {
-              toast.success("You left the channel");
+              toast.success(isGroup ? "You left the conversation" : "You left the channel");
               onLeft();
             },
             onError: (err) => toast.error(err.message),
           })
         }
       >
-        <LogOut /> Leave channel
+        <LogOut /> {isGroup ? "Leave conversation" : "Leave channel"}
       </Button>
     </section>
   );
@@ -271,7 +361,12 @@ function DangerSection({
   };
 
   const remove = () => {
-    if (!window.confirm(`Permanently delete #${channel.name}? This can't be undone.`)) return;
+    if (
+      !window.confirm(
+        `Permanently delete #${channel.name}? This can't be undone.`,
+      )
+    )
+      return;
     del.mutate(channel.id, {
       onSuccess: () => {
         toast.success("Channel deleted");
@@ -285,10 +380,20 @@ function DangerSection({
     <section className="rounded-md border border-destructive/40 p-3">
       <SectionTitle>Danger zone</SectionTitle>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" disabled={update.isPending} onClick={archive}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={update.isPending}
+          onClick={archive}
+        >
           Archive
         </Button>
-        <Button variant="destructive" size="sm" disabled={del.isPending} onClick={remove}>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={del.isPending}
+          onClick={remove}
+        >
           <Trash2 /> Delete
         </Button>
       </div>

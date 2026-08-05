@@ -6,7 +6,7 @@ import {
   RealtimeEvents,
   UserEvents,
 } from "../../infrastructure/realtime/events.js";
-import { ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import type { CreateChannelBody } from "./channels.dto.js";
 
@@ -185,7 +185,67 @@ export async function getChannel(
   });
 }
 
-// ─── Management (admin or creator) ──────────────────────────────────────────
+// ─── Management ─────────────────────────────────────────────────────────────
+
+/**
+ * A channel's type plus the actor's standing in it — the inputs every
+ * management rule needs.
+ *
+ * Named channels and conversations answer to different authorities. A channel is
+ * an organisational object: workspace admins own it whether or not they've
+ * joined. A DM is not — it belongs to the people in it, so a workspace role
+ * grants nothing. Routing DMs through the channel rule is what let an admin
+ * delete or archive a conversation they could not even read (`getChannel`
+ * blocks non-members, but the management path never consulted membership).
+ */
+interface ChannelGate {
+  type: "public" | "private" | "direct" | "group";
+  createdBy: string | null;
+  isMember: boolean;
+}
+
+async function loadChannelGate(
+  db: PoolClient,
+  channelId: string,
+  userId: string,
+): Promise<ChannelGate> {
+  const { rows } = await db.query<{
+    type: ChannelGate["type"];
+    created_by: string | null;
+    is_member: boolean;
+  }>(
+    `SELECT c.type, c.created_by, (cm.user_id IS NOT NULL) AS is_member
+       FROM channels c
+       LEFT JOIN channel_members cm ON cm.channel_id = c.id AND cm.user_id = $2
+      WHERE c.id = $1`,
+    [channelId, userId],
+  );
+  const row = rows[0];
+  if (!row) throw new NotFoundError("Channel not found", ErrorCode.ChannelNotFound);
+  return { type: row.type, createdBy: row.created_by, isMember: row.is_member };
+}
+
+/** True for the two conversation types, which are never workspace-managed. */
+function isConversation(type: ChannelGate["type"]): boolean {
+  return type === "direct" || type === "group";
+}
+
+/**
+ * Assert the actor may manage a GROUP conversation: membership, nothing else.
+ *
+ * There is no per-channel role in the schema, so `created_by` is the only
+ * distinguishing attribute available. Any member may rename it or add people;
+ * only the creator may remove someone else. Anyone may remove themselves —
+ * that's `leaveChannel`.
+ */
+function assertGroupMember(gate: ChannelGate): void {
+  if (!gate.isMember) {
+    throw new ForbiddenError(
+      "You're not part of this conversation",
+      ErrorCode.NotAChannelMember,
+    );
+  }
+}
 
 /** Fetch a channel and assert the actor may manage it (workspace admin OR creator). */
 async function assertCanManageChannel(
@@ -207,7 +267,8 @@ async function assertCanManageChannel(
 }
 
 export interface UpdateChannelInput {
-  name?: string;
+  /** `null` clears it — groups only, restoring their participant-derived label. */
+  name?: string | null;
   topic?: string | null;
   archived?: boolean;
 }
@@ -220,7 +281,33 @@ export async function updateChannel(
   input: UpdateChannelInput,
 ): Promise<ChannelDTO> {
   const channel = await withTenantSchema(workspaceId, async (db) => {
-    await assertCanManageChannel(db, channelId, actor);
+    const gate = await loadChannelGate(db, channelId, actor.userId);
+    if (gate.type === "direct") {
+      // A 1:1 is labelled by who's in it; there is nothing to rename, and
+      // archiving would hide it from both people with no way back.
+      throw new ForbiddenError(
+        "Direct messages can't be renamed or archived",
+        ErrorCode.NotAllowedOnConversation,
+      );
+    }
+    if (gate.type === "group") {
+      assertGroupMember(gate);
+      if (input.archived !== undefined) {
+        // Archiving drops a conversation out of BOTH list endpoints while
+        // leaving it readable by id, with no UI to bring it back. Leaving is
+        // the exit from a group.
+        throw new ForbiddenError(
+          "Conversations can't be archived — leave it instead",
+          ErrorCode.NotAllowedOnConversation,
+        );
+      }
+    } else {
+      await assertCanManageChannel(db, channelId, actor);
+      if (input.name === null) {
+        // Only a group has a name to fall back FROM.
+        throw new BadRequestError("A channel needs a name", ErrorCode.BadRequest);
+      }
+    }
 
     const sets: string[] = [];
     const params: unknown[] = [];
@@ -259,6 +346,15 @@ export async function deleteChannel(
   actor: ChannelActor,
 ): Promise<void> {
   await withTenantSchema(workspaceId, async (db) => {
+    const gate = await loadChannelGate(db, channelId, actor.userId);
+    if (isConversation(gate.type)) {
+      // Nobody deletes a conversation — not the other participant, and not a
+      // workspace admin, who can't even read it. Leaving is the exit.
+      throw new ForbiddenError(
+        "Conversations can't be deleted",
+        ErrorCode.NotAllowedOnConversation,
+      );
+    }
     await assertCanManageChannel(db, channelId, actor);
     await db.query(`DELETE FROM channels WHERE id = $1`, [channelId]);
   });
@@ -274,6 +370,16 @@ export async function leaveChannel(
   channelId: string,
 ): Promise<void> {
   await withTenantSchema(workspaceId, async (db) => {
+    const gate = await loadChannelGate(db, channelId, userId);
+    if (gate.type === "direct") {
+      // Leaving a 1:1 would strand the other person in a conversation whose
+      // key still names you, and there is no "close/hide" concept to fall back
+      // on. The member set of a 1:1 is fixed for its whole life.
+      throw new ForbiddenError(
+        "You can't leave a direct message",
+        ErrorCode.NotAllowedOnConversation,
+      );
+    }
     await assertChannelMember(db, channelId, userId);
     await db.query(`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`, [
       channelId,
@@ -283,6 +389,9 @@ export async function leaveChannel(
 
   // Member set changed → re-read the channel (the leaver's own list drops it too).
   await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channelId));
+  // ...and drop the leaver's live subscription, so the socket stops delivering
+  // this channel's messages without waiting for their client to unsubscribe.
+  await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelMemberRemoved(channelId, userId));
 }
 
 export interface ChannelMemberDTO {
@@ -330,6 +439,17 @@ export async function addChannelMember(
   targetUserId: string,
 ): Promise<void> {
   await withTenantSchema(workspaceId, async (db) => {
+    const gate = await loadChannelGate(db, channelId, actorUserId);
+    if (gate.type === "direct") {
+      // The privacy rule. A 1:1 is identified by its `dm_key`, and adding a
+      // third person here would leave that key naming only two of them — so the
+      // next "message Bob" would silently reopen this room with the extra
+      // person still in it. The client starts a NEW group instead.
+      throw new BadRequestError(
+        "You can't add someone to a direct message — start a group conversation instead",
+        ErrorCode.DirectMessageIsFixed,
+      );
+    }
     await assertChannelMember(db, channelId, actorUserId);
     const { rows } = await db.query<{ ok: boolean }>(
       `SELECT EXISTS(SELECT 1 FROM memberships WHERE workspace_id = $1 AND user_id = $2) AS ok`,
@@ -363,7 +483,26 @@ export async function removeChannelMember(
   targetUserId: string,
 ): Promise<void> {
   await withTenantSchema(workspaceId, async (db) => {
-    await assertCanManageChannel(db, channelId, actor);
+    const gate = await loadChannelGate(db, channelId, actor.userId);
+    if (gate.type === "direct") {
+      throw new ForbiddenError(
+        "A direct message's participants can't be changed",
+        ErrorCode.NotAllowedOnConversation,
+      );
+    }
+    if (gate.type === "group") {
+      // No per-channel roles exist, so `created_by` is the only authority a
+      // group has. Anyone may remove THEMSELVES — that path is `leaveChannel`.
+      assertGroupMember(gate);
+      if (gate.createdBy !== actor.userId && targetUserId !== actor.userId) {
+        throw new ForbiddenError(
+          "Only the person who started this conversation can remove someone",
+          ErrorCode.CannotManageChannel,
+        );
+      }
+    } else {
+      await assertCanManageChannel(db, channelId, actor);
+    }
     await db.query(`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`, [
       channelId,
       targetUserId,
@@ -376,6 +515,12 @@ export async function removeChannelMember(
     { userId: targetUserId, event: UserEvents.channelRemoved(workspaceId, channelId) },
   ]);
   await emitWorkspaceEvent(workspaceId, RealtimeEvents.channelUpdated(channelId));
+  // Revoke their live subscription server-side rather than trusting their client
+  // to unsubscribe itself — see `hub.revokeChannel`.
+  await emitWorkspaceEvent(
+    workspaceId,
+    RealtimeEvents.channelMemberRemoved(channelId, targetUserId),
+  );
 }
 
 export interface ChannelReadDTO {

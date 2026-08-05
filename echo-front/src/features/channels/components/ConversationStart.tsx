@@ -70,18 +70,25 @@ function DmIntro({ channel }: { channel: DirectMessageDTO }) {
   const workspace = useCurrentWorkspace();
   const { data: online } = usePresence(workspace.id);
   const myId = session?.user.id;
-  const others = channel.participants.filter((p) => p.userId !== myId);
+  // Hold off until the session resolves: without it YOU are counted among the
+  // others, so a 1:1 renders as a group with your own name in the heading.
+  const others = myId ? channel.participants.filter((p) => p.userId !== myId) : [];
   const people = others.length ? others : channel.participants;
-  const isGroup = channel.type === "group" || people.length > 1;
+  // Type, not headcount. A group that has shrunk to two people is still a group
+  // — deriving this from `people.length` disagreed with the type and flipped the
+  // copy underneath the user.
+  const isGroup = channel.type === "group";
   const names = people.map((p) => p.name).join(", ");
   // Only a 1:1 gets a dot — the avatars below overlap (`-space-x-2`), so on a
   // group each dot would sit under the next person's face.
   const solo = people.length === 1;
+  const shown = people.slice(0, 3);
+  const overflow = people.length - shown.length;
 
   return (
     <>
       <div className="mb-3 flex -space-x-2">
-        {people.slice(0, 3).map((p) => (
+        {shown.map((p) => (
           <UserAvatar
             key={p.userId}
             name={p.name}
@@ -91,6 +98,13 @@ function DmIntro({ channel }: { channel: DirectMessageDTO }) {
             online={solo && online ? online.has(p.userId) : undefined}
           />
         ))}
+        {overflow > 0 && (
+          // The heading lists everyone, so silently dropping faces past the
+          // third made the two disagree.
+          <span className="flex size-10 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground ring-2 ring-background">
+            +{overflow}
+          </span>
+        )}
       </div>
       <h2 className="text-xl font-bold text-foreground">{names}</h2>
       <p className="mt-1 text-sm text-muted-foreground">

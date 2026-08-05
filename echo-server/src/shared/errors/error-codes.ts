@@ -46,6 +46,10 @@ export const ErrorCode = {
   NotAChannelMember: "not_a_channel_member",
   CannotManageChannel: "cannot_manage_channel",
   ChannelArchived: "channel_archived",
+  /** The operation is meaningless or unsafe on a direct/group conversation. */
+  NotAllowedOnConversation: "not_allowed_on_conversation",
+  /** Tried to change who is in a 1:1 — start a group conversation instead. */
+  DirectMessageIsFixed: "direct_message_is_fixed",
   MessageNotFound: "message_not_found",
   NotMessageAuthor: "not_message_author",
 

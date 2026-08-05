@@ -251,9 +251,44 @@ export class RealtimeHub {
       }
     }
 
-    // Deliver first, THEN evict: a well-behaved client is told why it's being
-    // disconnected, and a misbehaving one is disconnected regardless.
+    // Deliver first, THEN revoke: a well-behaved client is told why, and a
+    // misbehaving one loses access regardless.
     if (event.kind === "member.removed") this.evict(workspaceId, event.userId);
+    if (event.kind === "channel.member_removed") {
+      this.revokeChannel(workspaceId, event.userId, event.channelId);
+    }
+  }
+
+  /**
+   * Drop one user's subscription to one channel.
+   *
+   * The narrower sibling of `evict`: they're still in the workspace, so the
+   * socket stays open — it just stops being a subscriber of that channel.
+   *
+   * Without this, a channel subscription outlived the membership that justified
+   * it. `subscribe` authorizes once and nothing re-checks, so the only thing
+   * that removed the subscription was the removed user's own client choosing to
+   * unsubscribe when it saw `channel.removed`. That works right up until a
+   * client doesn't comply, or until that event is dropped (NOTIFY is
+   * at-most-once) while the workspace socket stays up.
+   */
+  private revokeChannel(workspaceId: string, userId: string, channelId: string): void {
+    const entry = this.workspaces.get(workspaceId);
+    if (!entry) return;
+    const subs = entry.channelSubs.get(channelId);
+    if (!subs || subs.size === 0) return;
+    // Collect before mutating: `unsubscribe` edits the set being iterated.
+    const doomed: WebSocket[] = [];
+    for (const ws of subs) {
+      if (this.contexts.get(ws)?.userId === userId) doomed.push(ws);
+    }
+    for (const ws of doomed) this.unsubscribe(ws, channelId);
+    if (doomed.length > 0) {
+      logger.info(
+        { workspaceId, userId, channelId, sockets: doomed.length },
+        "realtime: revoked channel subscriptions for a removed member",
+      );
+    }
   }
 
   /**

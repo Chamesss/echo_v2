@@ -28,8 +28,10 @@ CREATE TABLE channels (
   last_seq    integer NOT NULL DEFAULT 0,
   created_at  timestamp with time zone NOT NULL DEFAULT now()
 );
--- dm_key is NULL for named channels; Postgres treats each NULL as distinct, so
--- this only enforces uniqueness among direct/group channels.
+-- Set for 1:1 DMs only. It answers "do these two already have a conversation?",
+-- which only has an answer while the member set is fixed — so named channels and
+-- (mutable, self-naming) groups leave it NULL. Postgres treats each NULL as
+-- distinct, so this enforces uniqueness across 1:1s alone.
 CREATE UNIQUE INDEX channels_dm_key_unique ON channels (dm_key);
 
 CREATE TABLE channel_members (

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ChannelDTO, ChannelMemberDTO } from "@server/modules/channels/channels.service";
 import { apiFetch } from "@/lib/api";
-import { channelMembersKey, channelsKey } from "./keys";
+import { channelMembersKey } from "./keys";
+import { invalidateConversationLists } from "./conversation-lists";
 
 export type { ChannelMemberDTO };
 
@@ -10,7 +11,8 @@ const channelPath = (workspaceId: string, channelId: string) =>
 
 interface UpdateChannelInput {
   channelId: string;
-  name?: string;
+  /** `null` clears it — groups only, restoring their participant-derived label. */
+  name?: string | null;
   topic?: string;
   archived?: boolean;
 }
@@ -21,7 +23,7 @@ export function useUpdateChannel(workspaceId: string) {
   return useMutation({
     mutationFn: ({ channelId, ...body }: UpdateChannelInput) =>
       apiFetch<ChannelDTO>(channelPath(workspaceId, channelId), { method: "PATCH", body }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: channelsKey(workspaceId) }),
+    onSuccess: () => invalidateConversationLists(qc, workspaceId),
   });
 }
 
@@ -31,7 +33,7 @@ export function useDeleteChannel(workspaceId: string) {
   return useMutation({
     mutationFn: (channelId: string) =>
       apiFetch<void>(channelPath(workspaceId, channelId), { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: channelsKey(workspaceId) }),
+    onSuccess: () => invalidateConversationLists(qc, workspaceId),
   });
 }
 
@@ -41,7 +43,7 @@ export function useLeaveChannel(workspaceId: string) {
   return useMutation({
     mutationFn: (channelId: string) =>
       apiFetch<void>(`${channelPath(workspaceId, channelId)}/leave`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: channelsKey(workspaceId) }),
+    onSuccess: () => invalidateConversationLists(qc, workspaceId),
   });
 }
 
@@ -67,7 +69,9 @@ export function useAddChannelMember(workspaceId: string, channelId: string) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, channelId) });
-      qc.invalidateQueries({ queryKey: channelsKey(workspaceId) });
+      // The list drives more than the sidebar: a group's `participants` is the
+      // only source of the avatars and names shown around the conversation.
+      invalidateConversationLists(qc, workspaceId);
     },
   });
 }
@@ -82,7 +86,7 @@ export function useRemoveChannelMember(workspaceId: string, channelId: string) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, channelId) });
-      qc.invalidateQueries({ queryKey: channelsKey(workspaceId) });
+      invalidateConversationLists(qc, workspaceId);
     },
   });
 }

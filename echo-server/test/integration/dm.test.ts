@@ -102,13 +102,35 @@ describe("open-or-create (idempotent)", () => {
     expect(fromB.id).toBe(dm1.id); // canonical dm_key → same channel
   });
 
-  it("resolves the same group channel for the same participant set", async () => {
+  it("creates a NEW group each time, rather than resolving by participant set", async () => {
+    // Deliberately the opposite of the 1:1 rule above, and a change from the
+    // original behaviour. `dm_key` answers "do these people already have a
+    // conversation?", which only has an answer while the member set is fixed.
+    // A group's isn't — people can be added and removed, and it can be given
+    // its own name — so it is its own entity rather than a function of who
+    // started in it. Two groups with the same five people is legitimate.
+    //
+    // Keying them was also unsound: the key went stale on the first membership
+    // change, and a stale key is what let `openOrCreateDm` hand back a room
+    // containing someone the caller never expected.
     const g1 = await openOrCreateDm(ws.workspaceId, a.id, [b.id, c.id]);
     expect(g1.type).toBe("group");
     expect(g1.participants.map((p) => p.userId).sort()).toEqual([a.id, b.id, c.id].sort());
 
     const g2 = await openOrCreateDm(ws.workspaceId, c.id, [a.id, b.id]);
-    expect(g2.id).toBe(g1.id);
+    expect(g2.id).not.toBe(g1.id);
+    expect(g2.type).toBe("group");
+    // ...and both are real, independent conversations.
+    expect(g2.participants.map((p) => p.userId).sort()).toEqual([a.id, b.id, c.id].sort());
+  });
+
+  it("labels a group by its participants until it is given a name", async () => {
+    const g = await openOrCreateDm(ws.workspaceId, a.id, [b.id, c.id]);
+    expect(g.customName).toBeNull();
+    // Derived label, from the OTHER participants' names.
+    expect(g.name).toContain(b.name);
+    expect(g.name).toContain(c.name);
+    expect(g.name).not.toContain(a.name);
   });
 
   it("rejects participants who aren't workspace members", async () => {

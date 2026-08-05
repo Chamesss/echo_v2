@@ -46,13 +46,18 @@ export function DmList() {
         </p>
       ) : (
         dms.map((dm) => {
-          // A 1:1 has exactly one other person → show their face and their
-          // status. A group has several, which don't collapse into one dot, so
-          // it keeps the generic icon.
-          const others = dm.participants.filter(
-            (p) => p.userId !== session?.user.id,
-          );
+          // Wait for the session before deciding who "the others" are. While
+          // `session?.user.id` is undefined YOU count as another participant,
+          // so a 1:1 briefly looks like a group and loses its avatar.
+          const myId = session?.user.id;
+          const others = myId
+            ? dm.participants.filter((p) => p.userId !== myId)
+            : [];
+          // A 1:1 has exactly one other person → their face, and their status.
+          // A group shows a small stack instead: presence doesn't collapse into
+          // one dot, but faces are still more recognisable than a generic glyph.
           const solo = others.length === 1 ? others[0]! : null;
+          const stack = others.slice(0, 3);
           return (
           <NavLink
             key={dm.id}
@@ -76,10 +81,27 @@ export function DmList() {
                     maxInitials={1}
                     online={online ? online.has(solo.userId) : undefined}
                   />
+                ) : stack.length > 0 ? (
+                  <span className="flex shrink-0 -space-x-2">
+                    {stack.map((p) => (
+                      <UserAvatar
+                        key={p.userId}
+                        name={p.name}
+                        image={p.image}
+                        className="size-6 ring-1 ring-sidebar"
+                        maxInitials={1}
+                      />
+                    ))}
+                  </span>
                 ) : (
                   <MessageSquare className="size-4 shrink-0" />
                 )}
                 <span className="truncate">{dm.name || "Direct message"}</span>
+                {others.length > 1 && (
+                  <span className="shrink-0 text-[10px] text-sidebar-muted-foreground">
+                    {dm.participants.length}
+                  </span>
+                )}
                 {/* No badge for the DM you're viewing — it has no unread to you. */}
                 {dm.unread > 0 && !isActive && (
                   <span className="ml-auto h-4 w-4 text-center rounded-full bg-sidebar-badge px-1 text-[10px] font-semibold text-sidebar-badge-foreground">
