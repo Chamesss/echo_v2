@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pencil, RotateCw, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,15 @@ export interface MessageRowProps {
   onRetry?: (message: EchoMessage) => void;
   /** Drop a failed row from the timeline; local-only. */
   onDiscard?: (clientId: string) => void;
+  /**
+   * Rendered inside this row, below its body — the read receipt on the newest
+   * message.
+   *
+   * It belongs to the row rather than sitting after the timeline so it reads as
+   * part of the message it describes, and so it can't be separated from it by
+   * the timeline's row gap.
+   */
+  footer?: ReactNode;
 }
 
 export function MessageRow({
@@ -38,6 +47,7 @@ export function MessageRow({
   onDelete,
   onRetry,
   onDiscard,
+  footer,
 }: MessageRowProps) {
   const [editing, setEditing] = useState(false);
 
@@ -159,6 +169,8 @@ export function MessageRow({
             )}
           </>
         )}
+
+        {footer}
       </div>
     </div>
   );

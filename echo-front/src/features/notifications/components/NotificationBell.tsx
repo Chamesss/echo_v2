@@ -15,12 +15,33 @@ import {
 } from "../api/use-notifications";
 
 /**
+ * Where the bell is mounted, which decides how its tray opens.
+ *
+ * The rail is a narrow column pinned to the left edge, so its tray opens
+ * sideways and bottom-aligned. In the mobile top bar the same geometry would
+ * throw the panel straight off the right of the screen, so it drops downward and
+ * right-aligned instead. The two also sit on different surfaces: the rail wears
+ * the sidebar palette, the top bar wears the page one.
+ */
+type BellPlacement = "rail" | "bar";
+
+const TRAY_POSITION: Record<BellPlacement, string> = {
+  rail: "bottom-0 left-full ml-2",
+  bar: "right-0 top-full mt-2",
+};
+
+const BUTTON_STYLE: Record<BellPlacement, string> = {
+  rail: "text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+  bar: "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+};
+
+/**
  * The Activity bell + dropdown. The badge counts UNSEEN notifications; opening
  * the tray marks them seen (clears the dot). Clicking an item navigates to its
- * conversation and marks that one read. Lives in the dashboard top bar and the
- * workspace shell header so it's reachable everywhere.
+ * conversation and marks that one read. Mounted in the workspace rail on desktop
+ * and in the mobile top bar, where the rail is hidden.
  */
-export function NotificationBell() {
+export function NotificationBell({ placement = "rail" }: { placement?: BellPlacement } = {}) {
   const { data: summary } = useNotificationsSummary();
   const unseen = summary?.unseen ?? 0;
 
@@ -68,13 +89,20 @@ export function NotificationBell() {
         aria-label="Notifications"
         aria-haspopup="menu"
         aria-expanded={open}
-        // The bell lives in the workspace rail, so it wears the SIDEBAR theme;
-        // the panel it opens (below) wears the mode tokens like other overlays.
-        className="relative rounded-md p-2 text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        // Surface-dependent (see `BUTTON_STYLE`); the panel it opens always
+        // wears the mode tokens, like every other overlay.
+        className={cn("relative rounded-md p-2", BUTTON_STYLE[placement])}
       >
         <Bell className="size-5" />
         {unseen > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-sidebar-badge px-1 text-[10px] font-semibold leading-4 text-sidebar-badge-foreground">
+          <span
+            className={cn(
+              "absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-4",
+              placement === "rail"
+                ? "bg-sidebar-badge text-sidebar-badge-foreground"
+                : "bg-destructive text-destructive-foreground",
+            )}
+          >
             {unseen > 99 ? "99+" : unseen}
           </span>
         )}
@@ -83,9 +111,10 @@ export function NotificationBell() {
       {open && (
         <div
           role="menu"
-          // Opens to the RIGHT of the narrow left rail, bottom-aligned to the
-          // bell, so the panel never spills past the viewport edges.
-          className="absolute bottom-0 left-full z-50 ml-2 flex max-h-[80vh] w-80 max-w-[calc(100vw-5rem)] flex-col overflow-hidden rounded-md border border-border bg-card shadow-lg"
+          className={cn(
+            "absolute z-50 flex max-h-[80vh] w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border border-border bg-card shadow-lg",
+            TRAY_POSITION[placement],
+          )}
         >
           <div className="shrink-0 border-b border-border px-3 py-2 text-sm font-semibold text-foreground">
             Notifications

@@ -21,6 +21,7 @@ import { paths } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceEvents } from "@/features/workspaces/realtime/use-workspace-events";
+import { NotificationBell } from "@/features/notifications/components/NotificationBell";
 import { ConnectionBanner } from "./connection-banner";
 import { PageTitleProvider, usePageTitle } from "./page-title-context";
 import { WorkspaceSwitcher } from "./workspace-switcher";
@@ -200,6 +201,15 @@ export function AppShell() {
   );
 }
 
+/**
+ * The `< lg` header: menu button, page title, and the notification bell.
+ *
+ * The bell is here because the workspace rail — its home on desktop — is hidden
+ * below `lg`. Everything else the rail carries is reachable from the drawer
+ * (workspace switching, create, sign out), but notifications had no other entry
+ * point, and burying them in a drawer would hide the one thing that needs to be
+ * glanceable.
+ */
 function MobileTopBar({
   fallback,
   onOpen,
@@ -213,9 +223,10 @@ function MobileTopBar({
       <Button variant="ghost" size="sm" onClick={onOpen} aria-label="Open menu">
         <Menu />
       </Button>
-      <div className="truncate text-sm font-semibold text-foreground">
+      <div className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
         {title ?? fallback}
       </div>
+      <NotificationBell placement="bar" />
     </div>
   );
 }

@@ -17,11 +17,19 @@ import { useWorkspaceUnread } from "@/features/notifications/hooks/use-workspace
 import { NotificationBell } from "@/features/notifications/components/NotificationBell";
 
 /**
- * Slack-style global workspace rail — a narrow always-on column at the far left
- * of the signed-in app. Lists every workspace as a square avatar (switch on
- * click, live unread badge), a "+" to create one, and at the bottom the single
- * GLOBAL notification bell + a user menu (sign out). Lives above the workspace
- * shell so it's present on the landing, the create page, and inside a workspace.
+ * Slack-style global workspace rail — a narrow column at the far left of the
+ * signed-in app. Lists every workspace as a square avatar (switch on click, live
+ * unread badge), a "+" to create one, and at the bottom the single GLOBAL
+ * notification bell + a user menu (sign out). Lives above the workspace shell so
+ * it's present on the landing, the create page, and inside a workspace.
+ *
+ * DESKTOP ONLY (`lg`), matching the shell's sidebar breakpoint. 64px of
+ * permanent chrome is affordable beside a sidebar and a conversation; on a phone
+ * it was a sixth of the width, spent on a column whose every function the shell's
+ * drawer already performs — the switcher lists the same workspaces with the same
+ * badges and offers the same "create", and the drawer's footer signs you out.
+ * The one thing it alone carried is the notification bell, which the shell's
+ * mobile top bar now renders (see `app-shell.tsx`).
  */
 export function WorkspaceRail() {
   const { data: workspaces = [] } = useMyWorkspaces();
@@ -31,7 +39,7 @@ export function WorkspaceRail() {
   return (
     <nav
       aria-label="Workspaces"
-      className="flex w-16 shrink-0 flex-col items-center gap-2 border-r border-sidebar-border bg-sidebar py-3 text-sidebar-foreground"
+      className="hidden w-16 shrink-0 flex-col items-center gap-2 border-r border-sidebar-border bg-sidebar py-3 text-sidebar-foreground lg:flex"
     >
       <div className="flex flex-1 flex-col items-center gap-2 overflow-y-auto">
         {workspaces.map((w) => (

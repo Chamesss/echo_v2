@@ -106,7 +106,11 @@ export function ChannelSettingsDialog({
             />
           )}
 
-          <LeaveSection channelId={channel.id} isGroup={isGroup} onLeft={goHome} />
+          <LeaveSection
+            channelId={channel.id}
+            isGroup={isGroup}
+            onLeft={goHome}
+          />
 
           {/* No danger zone for a conversation: archiving would hide it from
               everyone with no way back, and deleting is blocked server-side.
@@ -146,11 +150,14 @@ function DetailsSection({
   // form edits `customName` and shows the label as a placeholder. Editing
   // `name` directly would turn "currently showing Alice, Bob" into a real
   // title the moment anyone pressed Save.
-  const stored = isGroup ? ((channel as DirectMessageDTO).customName ?? "") : (channel.name ?? "");
+  const stored = isGroup
+    ? ((channel as DirectMessageDTO).customName ?? "")
+    : (channel.name ?? "");
   const [name, setName] = useState(stored);
   const [topic, setTopic] = useState(channel.topic ?? "");
 
-  const dirty = name.trim() !== stored || topic.trim() !== (channel.topic ?? "");
+  const dirty =
+    name.trim() !== stored || topic.trim() !== (channel.topic ?? "");
 
   const save = () => {
     const trimmed = name.trim();
@@ -166,7 +173,8 @@ function DetailsSection({
         topic: topic.trim(),
       },
       {
-        onSuccess: () => toast.success(isGroup ? "Conversation updated" : "Channel updated"),
+        onSuccess: () =>
+          toast.success(isGroup ? "Conversation updated" : "Channel updated"),
         onError: (err) => toast.error(err.message),
       },
     );
@@ -243,14 +251,27 @@ function MembersSection({
     <section>
       <SectionTitle>{isGroup ? "People" : "Members"}</SectionTitle>
       {canAdd && (
-        <div className="mb-3 flex gap-2">
+        <div className="mb-3 flex gap-2 items-center">
           <select
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
-            aria-label={isGroup ? "Add someone to this conversation" : "Add a member"}
-            className="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            aria-label={
+              isGroup ? "Add someone to this conversation" : "Add a member"
+            }
+            // `min-w-0` is load-bearing. A flex item defaults to
+            // `min-width: auto`, which refuses to shrink below its intrinsic
+            // width — and a <select>'s intrinsic width comes from its WIDEST
+            // <option>, not the selected one. One person with a long name and
+            // address therefore set a floor under this row and stretched the
+            // dialog past its `max-w-md`. `flex-1` can't help: it grants grow,
+            // not shrink. `truncate` then ellipses the chosen value instead of
+            // clipping it mid-character. The open dropdown is a native overlay,
+            // so it still shows each option in full.
+            className="flex h-9 min-w-0 flex-1 truncate rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
-            <option value="">{isGroup ? "Add someone…" : "Add a member…"}</option>
+            <option value="">
+              {isGroup ? "Add someone…" : "Add a member…"}
+            </option>
             {candidates.map((m) => (
               <option key={m.userId} value={m.userId}>
                 {m.name} ({m.email})
@@ -280,9 +301,13 @@ function MembersSection({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-destructive hover:text-destructive"
+                // The name beside it truncates, so this keeps its full hit
+                // target instead of being squeezed by a long address.
+                className="shrink-0 text-destructive hover:text-destructive"
                 disabled={remove.isPending}
-                title={isGroup ? "Remove from conversation" : "Remove from channel"}
+                title={
+                  isGroup ? "Remove from conversation" : "Remove from channel"
+                }
                 aria-label={`Remove ${m.name}`}
                 onClick={() =>
                   remove.mutate(m.userId, {
@@ -321,7 +346,9 @@ function LeaveSection({
         onClick={() =>
           leave.mutate(channelId, {
             onSuccess: () => {
-              toast.success(isGroup ? "You left the conversation" : "You left the channel");
+              toast.success(
+                isGroup ? "You left the conversation" : "You left the channel",
+              );
               onLeft();
             },
             onError: (err) => toast.error(err.message),
