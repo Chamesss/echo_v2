@@ -53,7 +53,7 @@ echo/
 │       ├── features/     # feature slices: api/ (hooks) + components/ + realtime/
 │       ├── components/   # layouts + UI primitives
 │       └── routes/       # page components (code-split)
-└── docs/                 # AUTH.md, PRESENCE.md — subsystem deep-dives
+└── docs/                 # AUTH.md — auth deep-dive; media/ — architecture animations
 ```
 
 ---
@@ -91,7 +91,8 @@ one `betterAuth({...})` config mounted at `/api/auth/*`. It gives us, out of the
 - an **admin plugin** (ban / set role / impersonate / list sessions) powering `/admin`
 - **Cloudflare Turnstile** CAPTCHA on sign-up / sign-in / reset (again, only when the secret
   is configured)
-- per-endpoint **rate limiting** (e.g. 5 sign-ins/min, 3 sign-ups/hour)
+- per-endpoint **rate limiting** (100 req/10s globally; 20/min on sign-in and TOTP verify,
+  20/hour on sign-up and password reset)
 
 Better Auth writes to _our_ Postgres tables through its Drizzle adapter — `users`,
 `sessions`, `accounts`, `verifications`, `twoFactors` (mapped in
@@ -120,6 +121,11 @@ Data is split into two planes:
 | ----------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | **Control plane** | `public` schema, accessed via Drizzle                              | users, sessions, accounts, workspaces, memberships, invite tokens, notifications, preferences, `tenant_catalog`, auth audit log |
 | **Tenant plane**  | one `tenant_<slug>` schema **per workspace**, accessed via raw SQL | channels, channel_members, messages, message_revisions, attachments                                                             |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/echo-figure-5-dark.gif">
+  <img alt="Three teams each connect down into their own database cylinder, all sitting inside one larger Postgres database" src="docs/media/echo-figure-5-light.gif" width="100%">
+</picture>
 
 Creating a workspace runs [provisionWorkspace()](echo-server/src/infrastructure/provisioning/workspace.ts)
 — a **single Postgres transaction** that inserts the workspace row, inserts the creator's
@@ -216,6 +222,11 @@ event.updatedSeq <= lastClock        → already seen, drop it (dedupe)
 event.updatedSeq >  lastClock + 1    → GAP → fetch GET …/messages?since=<lastClock>
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/echo-figure-4-dark.gif">
+  <img alt="Messages 1, 2, 3, 4 are pushed out but 3 is lost; the client sees the jump from 2 to 4, asks for everything after 2, and gets 3 and 4 back from the database in order" src="docs/media/echo-figure-4-light.gif" width="100%">
+</picture>
+
 Sends are also **idempotent**: the client generates a `clientId` UUID, and
 `(channel_id, client_id)` is unique. A retried send returns the existing row without burning
 a sequence number, so an optimistic UI and a flaky network can't produce duplicates.
@@ -236,7 +247,8 @@ instance A has to reach subscribers on instance B. Rather than add Redis, the
 - Listening uses a **dedicated client** that reconnects and re-`LISTEN`s automatically.
 - Channel names are opaque strings — `rt_ws_<workspaceId>` and `rt_user_<userId>` — validated
   against a regex before being quoted into `LISTEN` (identifiers can't be parameterized).
-- `pg_notify` payloads are capped at 8 KB. Oversized events are **skipped with a warning**
+- `pg_notify` payloads are capped by Postgres at 8 KB; the backplane refuses anything over
+  `MAX_PAYLOAD_BYTES = 7900` to stay clear of it. Oversized events are **skipped with a warning**
   rather than throwing — clients just catch up over REST. This is only viable _because_ of
   the seq design in 2.5.
 
@@ -246,11 +258,16 @@ Note the loopback design: the hub never delivers an event directly to its own lo
 It publishes to the backplane, and the instance's own `LISTEN` subscription delivers it back.
 One path in, one path out — so there's no chance of double-sending locally.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/echo-figure-3-dark.gif">
+  <img alt="A message reaches server A, which writes it to the database; the database then pushes it back to server A and across to server B at the same moment, and each server delivers only to the clients connected to it" src="docs/media/echo-figure-3-light.gif" width="100%">
+</picture>
+
 ### 2.7 Two sockets, on purpose
 
 | Socket               | Path                | Scope                                      | Carries                                                                                                                      |
 | -------------------- | ------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Workspace**        | `/ws?workspaceId=…` | one workspace, subscribes to open channels | `message.created/updated/deleted`, `channel.read`, roster + channel-lifecycle events                                         |
+| **Workspace**        | `/ws?workspaceId=…` | one workspace, subscribes to open channels | `message.created/updated/deleted`, `channel.read`, `typing`, `presence.changed`, roster + channel-lifecycle events           |
 | **Awareness (user)** | `/ws/user`          | the signed-in user, cross-workspace        | `unread.bump`, `notification.created`, and targeted `workspace.deleted` / `channel.added` / `channel.removed` / `dm.created` |
 
 Why split them? Unread badges and notifications must work **where you aren't** — on the
@@ -339,7 +356,7 @@ available endpoints, user fields and plugins are exactly what the server exposes
 SignInForm
   └─ authClient.signIn.email({ email, password })   (+ x-captcha-response if Turnstile is on)
        └─ POST /api/auth/sign-in/email
-            ├─ rate limit check (5/min for this endpoint)
+            ├─ rate limit check (20/min for this endpoint)
             ├─ verify password  →  HIBP breach check on sign-up/change
             ├─ if user.twoFactorEnabled → return a 2FA challenge instead of a session
             ├─ INSERT INTO sessions (token, userId, expiresAt, ip, userAgent)
@@ -430,11 +447,26 @@ will attach your cookies. So the upgrade is checked explicitly in
 
 ```
 HTTP GET /ws?workspaceId=…   (Upgrade: websocket, Cookie: session)
-  1. Origin ∈ corsOrigins?            no → 403 Forbidden Origin
-  2. auth.api.getSession(headers)?    no → 401 Unauthorized       ← same check as REST
-  3. membership row for (user, ws)?   no → 403 Not a workspace member
-  → wss.handleUpgrade → 'connection' with { role:'workspace', userId, workspaceId }
+  └─ wss.handleUpgrade(...)                 ← socket is OPEN before auth has run
+       ├─ ws.on('message', bufferFrame)     ← buffer, don't handle: ≤ 32 frames / ≤ 64 KB
+       └─ authorize(req, url)
+            1. Origin ∈ corsOrigins?         no → close 4403 Forbidden origin
+            2. auth.api.getSession(headers)? no → close 4401 Unauthorized   ← same check as REST
+            3. membership row for (user,ws)? no → close 4403 Not a workspace member
+            → wss.emit('connection', ws, { role:'workspace', userId, workspaceId })
+            → replay the buffered frames into the real handler
 ```
+
+**The upgrade completes before the checks run**, which looks backwards and isn't: Bun's `ws`
+shim requires `handleUpgrade` to be called synchronously, and `getSession` is async. The
+window is closed by buffering rather than trusting — an unauthenticated peer may queue at most
+32 frames or 64 KB, and gets hung up on past either.
+
+The buffering is also load-bearing for correctness, not just safety. The client sends
+`subscribe` the instant `onopen` fires, which is now *before* the server knows who it is;
+dropping those frames would silently lose the initial channel subscriptions until the next
+reconnect. Rejections use application close codes (`4400` bad request, `4401` unauthorized,
+`4403` forbidden) so the client can tell "retry later" from "stop trying" — see §4.4.
 
 `/ws/user` runs steps 1–2 only: it's user-scoped, and who receives each event is decided
 server-side per event.
@@ -535,6 +567,28 @@ the authoritative summary on reconnect.
 - **Reference counting** — the first socket for a workspace makes that instance `LISTEN`; the
   last one to leave `UNLISTEN`s. Same for each user's awareness channel. Idle workspaces cost
   nothing.
+
+### 4.6 Typing and presence — the two things that never touch the database
+
+Both are derived state, and neither is persisted.
+
+**Typing** is the only non-subscription frame a client may push. It rides the socket rather
+than REST specifically to avoid three queries per throttle tick: authorization is a `Set.has()`
+against the subscriptions already vetted at `subscribe`, so accepting one costs no database
+work. It's quota'd on both ends — the emitter throttles to one `start` per 3s and mirrors a
+5-frames-per-5s budget locally, deliberately one below the server's 6, so the *client* chooses
+what to drop and drops `stop` rather than `start`. Receivers clear an indicator two ways:
+an explicit `stop`, or a 5s TTL sweep, because `NOTIFY` is at-most-once and a `stop` may simply
+never arrive. Nothing is stored and no sequence number is consumed.
+
+**Presence** has no table and no heartbeat write. "Online" *is* the socket registry: a user is
+online if they hold at least one `/ws/user` socket. The only subtlety is an 8s grace window on
+the offline edge — a reconnect inside it cancels the pending offline *and stays silent*, since
+nobody was ever told you left and re-announcing would be a wasted frame. Because the registry
+is per-instance, presence is not aggregated across instances; the REST snapshot
+(`GET …/presence`) is what a fresh page load trusts. The implementation lives in
+[realtime/presence.ts](echo-server/src/infrastructure/realtime/presence.ts) and
+[use-typing.ts](echo-front/src/features/channels/realtime/use-typing.ts).
 
 ---
 
@@ -672,3 +726,31 @@ The source files carry long explanatory header comments — including the reason
 non-obvious choices (why no cookie cache, why `SET LOCAL search_path`, why the loopback
 delivery path, why unread lives on one socket only). This README is the map; those comments
 are the detail.
+
+---
+
+## 8. License
+
+**Source-available, not open source.** Echo is published under the
+[PolyForm Strict License 1.0.0](https://polyformproject.org/licenses/strict/1.0.0) — see
+[LICENSE](LICENSE) for the full terms.
+
+| | |
+| ----------------------------------------------------------------- | ----------- |
+| Read the source, clone it, run it locally, study how it works      | **Allowed** |
+| Personal, hobby, academic and other noncommercial use              | **Allowed** |
+| Modifying it, or building anything derived from it                 | **Ask me**  |
+| Redistributing it, in whole or in part                             | **Ask me**  |
+| Any commercial use                                                 | **Ask me**  |
+
+Permission for anything in the lower half is granted case by case, in writing. Open an issue
+or email **chamsedin.azouz@gmail.com**.
+
+Note that this repository being public on GitHub separately grants every GitHub user the
+right to view and fork it on-platform, under
+[GitHub's Terms of Service §D.5](https://docs.github.com/en/site-policy/github-terms/github-corporate-terms-of-service).
+That covers forking through GitHub's own interface and nothing more — it does not grant the
+right to modify, redistribute off-platform, or use this code commercially.
+
+Third-party dependencies remain under their own licenses; `node_modules` is not distributed
+as part of this repository.
