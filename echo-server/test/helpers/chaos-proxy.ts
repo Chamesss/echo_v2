@@ -20,10 +20,10 @@ export class ChaosProxy {
   private frozen = false;
   private latencyMs = 0;
 
-  private constructor(
-    readonly port: number,
-    private readonly targetPort: number,
-  ) {}
+  // No `targetPort` field: `start` closes over the port it was given and every
+  // upstream connect uses that local, so a stored copy was only ever a second
+  // source of truth waiting to disagree with the first.
+  private constructor(readonly port: number) {}
 
   /** Start a proxy in front of `targetPort` on an ephemeral port. */
   static async start(targetPort: number): Promise<ChaosProxy> {
@@ -31,7 +31,7 @@ export class ChaosProxy {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as net.AddressInfo).port;
 
-    const proxy = new ChaosProxy(port, targetPort);
+    const proxy = new ChaosProxy(port);
     proxy.server = server;
 
     server.on("connection", (client) => {

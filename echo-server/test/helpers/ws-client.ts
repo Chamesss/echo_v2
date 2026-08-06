@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { decodeFrame } from "../../src/infrastructure/realtime/frame.js";
 
 /**
  * A Node-side client that behaves like the frontend's `ReconnectingSocket`:
@@ -84,7 +85,7 @@ export class WsTestClient {
       if (this.ws !== ws) return;
       this.lastFrameAt = Date.now(); // any frame proves liveness
       try {
-        this.frames.push(JSON.parse(data.toString()));
+        this.frames.push(JSON.parse(decodeFrame(data)));
       } catch {
         /* ignore malformed */
       }

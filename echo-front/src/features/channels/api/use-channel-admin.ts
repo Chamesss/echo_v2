@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ChannelDTO, ChannelMemberDTO } from "@server/modules/channels/channels.service";
+import type { ChannelDTO } from "@server/modules/channels/channels.service";
+import type { ChannelMemberDTO } from "@server/modules/channels/channels.members";
 import { apiFetch } from "@/lib/api";
 import { channelMembersKey } from "./keys";
 import { invalidateConversationLists } from "./conversation-lists";
@@ -68,7 +69,7 @@ export function useAddChannelMember(workspaceId: string, channelId: string) {
         body: { userId },
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, channelId) });
+      void qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, channelId) });
       // The list drives more than the sidebar: a group's `participants` is the
       // only source of the avatars and names shown around the conversation.
       invalidateConversationLists(qc, workspaceId);
@@ -85,7 +86,7 @@ export function useRemoveChannelMember(workspaceId: string, channelId: string) {
         method: "DELETE",
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, channelId) });
+      void qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, channelId) });
       invalidateConversationLists(qc, workspaceId);
     },
   });

@@ -39,7 +39,7 @@ export function useMessages(workspaceId: string, channelId: string) {
       // A full page back ⇒ there may be older history to page in; a short page
       // means this IS the whole conversation, so hide "Load earlier messages".
       qc.setQueryData<boolean>(historyKey(workspaceId, channelId), messages.length >= HISTORY_PAGE);
-      return sortMessages(messages as EchoMessage[]);
+      return sortMessages(messages);
     },
     staleTime: Infinity,
   });

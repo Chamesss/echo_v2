@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../../shared/middleware/async-handler.js";
+import { rateLimit, CREATE_LIMIT } from "../../shared/middleware/rate-limit.js";
 import { validate } from "../../shared/middleware/validate.js";
 import { requireWorkspaceRole } from "../../shared/middleware/require-workspace-role.js";
 import { createInviteBody } from "./members.dto.js";
@@ -18,6 +19,7 @@ invitesRouter.get("/", requireWorkspaceRole("admin"), asyncHandler(listInvitesCo
 invitesRouter.post(
   "/",
   requireWorkspaceRole("admin"),
+  rateLimit(CREATE_LIMIT),
   validate({ body: createInviteBody }),
   asyncHandler(createInviteController),
 );

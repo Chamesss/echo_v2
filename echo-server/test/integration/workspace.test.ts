@@ -1,8 +1,7 @@
 import type { Request, Response } from "express";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { controlDb } from "../../src/infrastructure/database/control/client.js";
 import {
   memberships,
@@ -13,15 +12,15 @@ import { deleteWorkspace, renameWorkspace } from "../../src/modules/workspaces/w
 import { deleteWorkspaceController } from "../../src/modules/workspaces/workspaces.controller.js";
 import { addMemberByEmail } from "../../src/modules/members/members.service.js";
 import { getDirectory, invalidateDirectory } from "../../src/modules/members/directory.service.js";
-import { AppError, ForbiddenError } from "../../src/shared/errors/app-error.js";
+import { ForbiddenError } from "../../src/shared/errors/app-error.js";
 import {
   createUser,
   createWorkspace,
-  destroyWorkspace,
   makeChannel,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 let owner: TestUser;
 let ws: TestWorkspace; // used by rename + directory tests
@@ -33,11 +32,7 @@ beforeAll(async () => {
   toCleanup.push(ws);
 });
 
-afterAll(async () => {
-  for (const w of toCleanup) await destroyWorkspace(w);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(...toCleanup));
 
 async function schemaExists(schemaName: string): Promise<boolean> {
   const { rowCount } = await pool.query(

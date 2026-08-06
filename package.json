@@ -13,12 +13,18 @@
     "auth:studio": "bun run --filter echo-server auth:studio",
     "build": "bun run --filter echo-front build",
     "test": "bun run --filter '*' test",
-    "typecheck": "bun run --filter '*' typecheck"
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "eslint ."
   },
   "overrides": {
     "esbuild": "^0.25.0"
   },
   "devDependencies": {
-    "concurrently": "^10.0.3"
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^10.0.3",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.9.0",
+    "typescript-eslint": "^8.66.0"
   }
 }

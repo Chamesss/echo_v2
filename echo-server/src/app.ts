@@ -5,6 +5,10 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { corsOrigins, env } from "./config/env.js";
+import { pool } from "./infrastructure/database/pool.js";
+import { backplane } from "./infrastructure/realtime/backplane.js";
+import { logger } from "./shared/logger/logger.js";
+import { asyncHandler } from "./shared/middleware/async-handler.js";
 import { requestId } from "./shared/middleware/request-id.js";
 import { authenticate } from "./shared/middleware/authenticate.js";
 import { errorHandler } from "./shared/errors/error-handler.js";
@@ -59,9 +63,48 @@ app.use("/api/auth", authRouter);
 // Everything below this line gets JSON parsing.
 app.use(express.json({ limit: "1mb" }));
 
+/**
+ * Liveness. Touches nothing on purpose: `render.yaml` points `healthCheckPath`
+ * here, so verifying the database would let a Neon blip or a cold start cycle a
+ * healthy instance.
+ */
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
+
+/**
+ * Readiness — for humans and dashboards, deliberately NOT `healthCheckPath`.
+ * Short timeout of its own: a probe that hangs 15s has already failed.
+ */
+app.get(
+  "/health/ready",
+  asyncHandler(async (_req, res) => {
+    const checks = { database: false, realtime: backplane.isDeliveryHealthy() };
+
+    try {
+      const client = await pool.connect();
+      try {
+        // Session-level, not `SET LOCAL` — the latter is silently ignored outside
+        // a transaction. Reset before release so the pooled connection isn't
+        // left with the probe's ceiling.
+        await client.query("SET statement_timeout = 2000");
+        await client.query("SELECT 1");
+        checks.database = true;
+      } finally {
+        try {
+          await client.query("RESET statement_timeout");
+        } finally {
+          client.release();
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, "readiness probe: database unreachable");
+    }
+
+    const ready = checks.database && checks.realtime;
+    res.status(ready ? 200 : 503).json({ ready, checks });
+  }),
+);
 
 // API docs are public — no auth, mounted before any auth wall.
 app.use("/api/docs", docsRouter);

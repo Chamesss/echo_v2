@@ -90,7 +90,7 @@ export function useAttachmentUploads(workspaceId: string, channelId: string) {
           ? (resolveClientCategory(
               policy,
               item.file.type || "application/octet-stream",
-            ).category as AttachmentWire["category"])
+            ).category)
           : "file";
         patch(item.id, {
           status: "done",

@@ -181,7 +181,7 @@ describe("useTypingParticipants", () => {
     emit(typingEvent("alice", "start"));
     expect(result.current).toEqual(["alice"]);
 
-    act(() => vi.advanceTimersByTime(6_000));
+    void act(() => vi.advanceTimersByTime(6_000));
     expect(result.current).toEqual([]);
   });
 
@@ -191,9 +191,9 @@ describe("useTypingParticipants", () => {
     const { result } = renderHook(() => useTypingParticipants(CHANNEL));
 
     emit(typingEvent("alice", "start"));
-    act(() => vi.advanceTimersByTime(3_000));
+    void act(() => vi.advanceTimersByTime(3_000));
     emit(typingEvent("alice", "start")); // the emitter's next throttle tick
-    act(() => vi.advanceTimersByTime(3_000));
+    void act(() => vi.advanceTimersByTime(3_000));
 
     expect(result.current).toEqual(["alice"]);
   });

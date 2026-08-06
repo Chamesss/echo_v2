@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { Bell } from "lucide-react";
 import type { NotificationWire } from "@server/infrastructure/realtime/protocol";
 import { describeNotification } from "@server/modules/notifications/notification-copy";
 import { paths } from "@/lib/paths";
+import { useDismissable } from "@/lib/use-dismissable";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { usePresence } from "@/features/members/api/use-presence";
@@ -45,39 +45,22 @@ export function NotificationBell({ placement = "rail" }: { placement?: BellPlace
   const { data: summary } = useNotificationsSummary();
   const unseen = summary?.unseen ?? 0;
 
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, toggle: toggleOpen, ref } = useDismissable();
   const { data, isPending, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useNotificationsList(open);
   const notifications = data?.pages.flat() ?? [];
   const markSeen = useMarkSeen();
   const markRead = useMarkRead();
   const navigate = useNavigate();
-  const location = useLocation();
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close on navigation.
-  useEffect(() => setOpen(false), [location.pathname]);
-
-  // Close on outside click.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
 
   const toggle = () => {
-    const next = !open;
-    setOpen(next);
     // Opening the tray clears the "unseen" dot.
-    if (next && unseen > 0) markSeen.mutate();
+    if (toggleOpen() && unseen > 0) markSeen.mutate();
   };
 
   const openItem = (n: NotificationWire) => {
     markRead.mutate({ ids: [n.id] });
-    navigate(paths.workspaceChannel(n.workspaceId, n.channelId));
+    void navigate(paths.workspaceChannel(n.workspaceId, n.channelId));
     setOpen(false);
   };
 

@@ -42,7 +42,7 @@ export function useRevokeSession() {
       return result.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionsKey });
+      void queryClient.invalidateQueries({ queryKey: sessionsKey });
     },
   });
 }
@@ -64,7 +64,7 @@ export function useRevokeOtherSessions() {
       return result.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionsKey });
+      void queryClient.invalidateQueries({ queryKey: sessionsKey });
     },
   });
 }

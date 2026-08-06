@@ -8,7 +8,8 @@ import { controlDb } from "../database/control/client.js";
 import { memberships } from "../database/control/schema.js";
 import { corsOrigins } from "../../config/env.js";
 import { logger } from "../../shared/logger/logger.js";
-import { assertChannelAccess } from "../../modules/channels/channels.service.js";
+import { assertChannelAccess } from "../../modules/channels/channels.gates.js";
+import { decodeFrame } from "./frame.js";
 import { hub } from "./hub.js";
 import * as presence from "./presence.js";
 import { WS_CLOSE } from "./protocol.js";
@@ -169,8 +170,7 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
         info.userId,
         hub.addUserSocket(ws, { userId: info.userId }),
       );
-      // hub.addUserSocket(ws, { userId: info.userId });
-      ws.on("message", (data) => void onUserMessage(ws, data.toString()));
+      ws.on("message", (data) => void onUserMessage(ws, decodeFrame(data)));
 
       const detach = () =>
         presence.onUserDisconnected(info.userId, hub.removeUserSocket(ws));
@@ -181,7 +181,7 @@ export function attachRealtimeServer(httpServer: Server): WebSocketServer {
     }
 
     hub.add(ws, { userId: info.userId, workspaceId: info.workspaceId });
-    ws.on("message", (data) => void onMessage(ws, info, data.toString()));
+    ws.on("message", (data) => void onMessage(ws, info, decodeFrame(data)));
     ws.on("close", () => hub.remove(ws));
     ws.on("error", () => hub.remove(ws));
   });

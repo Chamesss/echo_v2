@@ -53,7 +53,7 @@ echo/
 │       ├── features/     # feature slices: api/ (hooks) + components/ + realtime/
 │       ├── components/   # layouts + UI primitives
 │       └── routes/       # page components (code-split)
-└── docs/SPRINT-TRACKER.md
+└── docs/                 # AUTH.md, PRESENCE.md — subsystem deep-dives
 ```
 
 ---
@@ -666,7 +666,7 @@ it can't drift from the implementation.
 | Client-side gap detection                                            | [features/channels/realtime/use-channel-stream.ts](echo-front/src/features/channels/realtime/use-channel-stream.ts)                                                |
 | Socket lifecycle on the client                                       | [lib/realtime.ts](echo-front/src/lib/realtime.ts), [lib/user-realtime.ts](echo-front/src/lib/user-realtime.ts)                                                     |
 | The route tree                                                       | [echo-front/src/router.tsx](echo-front/src/router.tsx)                                                                                                             |
-| Feature status / roadmap                                             | [docs/SPRINT-TRACKER.md](docs/SPRINT-TRACKER.md)                                                                                                                   |
+| What is actually built and working                                   | the test suites: [echo-server/test/](echo-server/test/) and the `*.test.tsx` files beside each frontend feature                                                     |
 
 The source files carry long explanatory header comments — including the reasoning behind the
 non-obvious choices (why no cookie cache, why `SET LOCAL search_path`, why the loopback

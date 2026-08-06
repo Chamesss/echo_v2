@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -37,7 +38,7 @@ export function SetPasswordForm() {
         toast.success("Password set. You can now sign in with your email and password.");
         form.reset();
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

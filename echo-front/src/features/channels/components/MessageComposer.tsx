@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Paperclip, SendHorizontal } from "lucide-react";
 import type { AttachmentWire } from "@server/infrastructure/realtime/protocol";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,7 @@ export function MessageComposer({ channelId }: { channelId: string }) {
       { body: sentBody, attachments, optimisticAttachments },
       {
         onError: (err) => {
-          toast.error(err.message);
+          toastError(err);
           // Put the text back so a failed send doesn't eat what they wrote. Only
           // when the box is still empty — if they've started a new message,
           // clobbering it would be worse than the loss. The failed row keeps its

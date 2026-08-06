@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { paths } from "@/lib/paths";
+import { useDismissable } from "@/lib/use-dismissable";
 import { useCurrentWorkspace } from "@/features/workspaces/context/workspace-context";
 import {
   useMyWorkspaces,
@@ -17,30 +17,14 @@ import { useWorkspaceUnread } from "@/features/notifications/hooks/use-workspace
  */
 export function WorkspaceSwitcher() {
   const current = useCurrentWorkspace();
-  const location = useLocation();
   const { data: workspaces = [] } = useMyWorkspaces();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close on navigation.
-  useEffect(() => setOpen(false), [location.pathname]);
-
-  // Close on outside click.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
+  const { open, toggle, ref } = useDismissable();
 
   return (
     <div ref={ref} className="relative h-full min-w-0 flex-1">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={open}
         className="flex h-full w-full items-center gap-2 px-4 text-left hover:bg-sidebar-accent"

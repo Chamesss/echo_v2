@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Hash, Lock, Settings, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isTabVisible } from "@/lib/visibility";
@@ -108,7 +108,7 @@ export function ChannelView({ channelId }: { channelId: string }) {
             disabled={join.isPending}
             onClick={() =>
               join.mutate(channel.id, {
-                onError: (err) => toast.error(err.message),
+                onError: toastError,
               })
             }
           >

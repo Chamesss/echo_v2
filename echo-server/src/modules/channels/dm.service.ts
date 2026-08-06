@@ -7,12 +7,19 @@ import { ErrorCode } from "../../shared/errors/error-codes.js";
 import type { ChannelDTO } from "./channels.service.js";
 
 /**
- * Direct & group messages. A DM is just a `channels` row of type `direct` (2
- * people) or `group` (3+), addressed by a canonical `dm_key` derived from the
- * sorted participant set — so "open a DM with X" is idempotent: the same set of
- * people always resolves to the same channel (the `dm_key` unique index
- * enforces it even under a race). Messaging/edit/catch-up reuse the channel
- * engine unchanged; only open-or-create + listing live here.
+ * Direct & group messages. Both are `channels` rows — type `direct` (exactly 2
+ * people) or `group` (3+) — and the two are addressed differently on purpose:
+ *
+ * - A `direct` channel carries a canonical `dm_key` derived from the sorted
+ *   participant pair, so "open a DM with X" is idempotent: the same two people
+ *   always resolve to the same channel, and the `dm_key` unique index enforces
+ *   that even under a race.
+ * - A `group` has NO `dm_key`. Its membership can change and it can be renamed,
+ *   so it isn't identified by who happened to be in it at creation — asking for
+ *   a group always creates a new one. See `openOrCreateDm` below.
+ *
+ * Messaging/edit/catch-up reuse the channel engine unchanged; only open-or-create
+ * + listing live here.
  */
 
 export interface DmParticipant {

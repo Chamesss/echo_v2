@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,14 +49,14 @@ export function CreateWorkspaceForm() {
       onSuccess: (result) => {
         toast.success("Workspace created");
         setLastWorkspaceId(result.workspaceId);
-        navigate(`/dashboard/${result.workspaceId}`);
+        void navigate(`/dashboard/${result.workspaceId}`);
       },
       onError: (err) => {
         if (err instanceof ApiError && err.code === "slug_taken") {
           form.setError("slug", { message: "That slug is already taken" });
           return;
         }
-        toast.error(err.message);
+        toastError(err);
       },
     });
   };

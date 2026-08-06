@@ -49,14 +49,14 @@ beforeEach(() => {
   vi.stubGlobal("XMLHttpRequest", FakeXHR);
   vi.mocked(apiFetch).mockReset();
   vi.mocked(apiFetch).mockImplementation(async (path: string) => {
-    if (path.endsWith("/attachments/policy")) return POLICY as never;
+    if (path.endsWith("/attachments/policy")) return POLICY;
     if (path.includes("/attachments/presign")) {
       return {
         uploadUrl: "https://put.example",
         key: "echo/workspaces/w/channels/c/u/abc.png",
         publicUrl: "https://bucket.example/abc.png",
         requiredHeaders: {},
-      } as never;
+      };
     }
     throw new Error(`unexpected apiFetch ${path}`);
   });

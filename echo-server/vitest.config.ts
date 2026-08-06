@@ -49,6 +49,10 @@ export default defineConfig({
     env: {
       NODE_ENV: "test",
       DATABASE_URL: resolveTestDatabaseUrl(),
+      // Above the 15s production default: the suite runs against a REMOTE
+      // database, and the 25-writer race serializes on a row lock (~700ms per
+      // writer from a dev machine). `testTimeout` still catches a real hang.
+      DB_STATEMENT_TIMEOUT_MS: "60000",
       BETTER_AUTH_SECRET: "test-only-secret-not-used-for-anything-real",
       BETTER_AUTH_URL: "http://localhost:4000",
       CORS_ORIGINS: "http://localhost:3000",

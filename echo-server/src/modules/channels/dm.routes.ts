@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../../shared/middleware/async-handler.js";
+import { rateLimit, CREATE_LIMIT } from "../../shared/middleware/rate-limit.js";
 import { validate } from "../../shared/middleware/validate.js";
 import { openDmBody } from "./channels.dto.js";
 import { listDmsController, openDmController } from "./dm.controller.js";
@@ -15,4 +16,9 @@ import { listDmsController, openDmController } from "./dm.controller.js";
 export const dmsRouter = Router({ mergeParams: true });
 
 dmsRouter.get("/", asyncHandler(listDmsController));
-dmsRouter.post("/", validate({ body: openDmBody }), asyncHandler(openDmController));
+dmsRouter.post(
+  "/",
+  rateLimit(CREATE_LIMIT),
+  validate({ body: openDmBody }),
+  asyncHandler(openDmController),
+);

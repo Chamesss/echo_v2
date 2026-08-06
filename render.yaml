@@ -10,9 +10,12 @@
 # After the FIRST deploy:
 #   1. Set DATABASE_URL to your Neon direct string.
 #   2. Set BETTER_AUTH_URL + CORS_ORIGINS to the service's https URL (same value).
-#   3. Run migrations once (Render Shell or a one-off job):
-#        bun run --filter echo-server db:migrate
-#        bun run --filter echo-server db:migrate-tenants
+#
+# Migrations are NOT a manual step. The server runs both control-plane and tenant
+# migrations at boot, before it listens, and refuses to start if either fails —
+# see src/boot/migrate-on-boot.ts. This used to say "run migrations once", which
+# was the bug: they're per-deploy, not one-time, so any deploy that added one and
+# didn't get a human into a shell left the database behind the code.
 #
 # Railway: no blueprint needed — point a service at echo-server/Dockerfile with
 # the repo root as build context and set the same env vars.

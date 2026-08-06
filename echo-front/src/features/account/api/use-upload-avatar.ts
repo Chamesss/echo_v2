@@ -50,6 +50,10 @@ export function useUploadAvatar() {
         if (err instanceof ApiError && err.code === "uploads_not_configured") {
           throw new Error(
             "Avatar uploads aren't enabled on this server. Configure S3_BUCKET in the backend env.",
+            // Keep the original reachable: this replaces a server error code with
+            // operator-facing advice, and losing the response behind it would make
+            // the real cause unrecoverable from a log.
+            { cause: err },
           );
         }
         throw err;

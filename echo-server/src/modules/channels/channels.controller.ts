@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { logWorkspaceEvent, WorkspaceEventName } from "../../infrastructure/audit/audit-log.js";
 import * as channels from "./channels.service.js";
+import * as members from "./channels.members.js";
 import * as messages from "./messages.service.js";
 import type {
   AddChannelMemberBody,
@@ -82,12 +83,12 @@ export async function deleteChannelController(req: Request, res: Response): Prom
 }
 
 export async function leaveChannelController(req: Request, res: Response): Promise<void> {
-  await channels.leaveChannel(req.workspace.id, req.user.id, req.params.channelId!);
+  await members.leaveChannel(req.workspace.id, req.user.id, req.params.channelId!);
   res.status(204).end();
 }
 
 export async function listChannelMembersController(req: Request, res: Response): Promise<void> {
-  const list = await channels.listChannelMembers(
+  const list = await members.listChannelMembers(
     req.workspace.id,
     req.user.id,
     req.params.channelId!,
@@ -97,12 +98,12 @@ export async function listChannelMembersController(req: Request, res: Response):
 
 export async function addChannelMemberController(req: Request, res: Response): Promise<void> {
   const { userId } = req.body as AddChannelMemberBody;
-  await channels.addChannelMember(req.workspace.id, req.params.channelId!, req.user.id, userId);
+  await members.addChannelMember(req.workspace.id, req.params.channelId!, req.user.id, userId);
   res.status(204).end();
 }
 
 export async function removeChannelMemberController(req: Request, res: Response): Promise<void> {
-  await channels.removeChannelMember(
+  await members.removeChannelMember(
     req.workspace.id,
     req.params.channelId!,
     channelActor(req),
@@ -116,7 +117,7 @@ export async function getChannelController(req: Request, res: Response): Promise
 }
 
 export async function listChannelReadsController(req: Request, res: Response): Promise<void> {
-  const reads = await channels.getChannelReads(
+  const reads = await members.getChannelReads(
     req.workspace.id,
     req.user.id,
     req.params.channelId!,

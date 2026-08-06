@@ -418,8 +418,6 @@ export async function deleteWorkspaceNotificationsFor(
  * the control database hiccups we log and carry on rather than failing a removal
  * that has already committed. What survives is a stale inbox entry, and the
  * membership-scoped reads catch the workspace-level case anyway.
- *
- * The throwing `delete*` variants are what tests assert on.
  */
 export async function revokeChannelNotifications(
   channelId: string,

@@ -1,8 +1,9 @@
-import { useRef, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Navigate, useSearchParams } from 'react-router';
 import { useSession } from '@/lib/auth-client';
 import { paths } from '@/lib/paths';
 import { LoadingScreen } from '@/components/loading-screen';
+import { useEverResolved } from "@/lib/use-ever-resolved";
 
 /**
  * Inverse of `RequireAuth` — used on /login, /register, /forgot-password to
@@ -15,21 +16,13 @@ import { LoadingScreen } from '@/components/loading-screen';
  */
 export function RedirectIfAuthed({ children }: { children: ReactNode }) {
   const { data: session, isPending } = useSession();
+  const everResolved = useEverResolved(isPending);
   const [params] = useSearchParams();
   const inviteToken = params.get('invite');
 
-  // better-auth's `useSession` flips `isPending` back to true on every
-  // background refetch while there's still no session (its refetch sets
-  // `isPending = data === null`). `signIn.email` triggers exactly such a
-  // refetch, so a naive `if (isPending)` would swap in the loading screen
-  // mid-sign-in and unmount `children` — wiping SignInForm's local
-  // `twoFactorRequired` state and bouncing the user back to an empty form.
-  // Only block on the FIRST resolution; after that, keep children mounted
-  // through refetches.
-  const everResolved = useRef(false);
-  if (!isPending) everResolved.current = true;
-
-  if (isPending && !everResolved.current) return <LoadingScreen />;
+  // First resolution only: `signIn.email` triggers a refetch, and unmounting
+  // `children` mid-sign-in would wipe SignInForm's `twoFactorRequired` state.
+  if (isPending && !everResolved) return <LoadingScreen />;
   // An already-signed-in visitor who followed an invite link goes to the accept
   // page (it auto-joins / shows a mismatch), not the generic home redirect.
   if (session?.user) {

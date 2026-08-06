@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { decodeFrame } from "../../src/infrastructure/realtime/frame.js";
 
 /**
  * Authorization on a socket that is ALREADY open.
@@ -33,8 +34,8 @@ const { openOrCreateDm } = await import("../../src/modules/channels/dm.service.j
 const { removeMember, leaveWorkspace } = await import(
   "../../src/modules/members/members.service.js"
 );
-const { removeChannelMember } = await import("../../src/modules/channels/channels.service.js");
-const { addChannelMember } = await import("../../src/modules/channels/channels.service.js");
+const { removeChannelMember } = await import("../../src/modules/channels/channels.members.js");
+const { addChannelMember } = await import("../../src/modules/channels/channels.members.js");
 const { addMember, createUser, createWorkspace, destroyWorkspace, makeChannel } = await import(
   "../factories.js"
 );
@@ -98,7 +99,7 @@ async function rawClient(userId: string, channelId: string): Promise<RawClient> 
         .filter((f) => f.t === "event")
         .map((f) => f.event as Record<string, unknown>),
   };
-  socket.on("message", (d) => client.frames.push(JSON.parse(d.toString())));
+  socket.on("message", (d) => client.frames.push(JSON.parse(decodeFrame(d))));
   socket.on("close", (code) => {
     client.closeCode = code;
   });

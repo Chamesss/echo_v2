@@ -50,7 +50,11 @@ function pretty(level: Level, entry: Record<string, unknown>): string {
   const clock = typeof time === 'string' ? time.slice(11, 19) : '';
 
   const parts = [paint(ANSI.dim, clock), paint(LEVEL_COLOR[level], level.toUpperCase().padEnd(5))];
-  if (message != null && message !== '') parts.push(String(message));
+  // `message` is `unknown`, so a bare `String()` renders an object as the
+  // useless '[object Object]'. Serialise it the same way `extras` below does,
+  // so a structured value logged under `message` stays readable.
+  if (message != null && message !== '')
+    parts.push(typeof message === 'string' ? message : JSON.stringify(message));
 
   let line = parts.join(' ');
   const extras = Object.entries(rest)

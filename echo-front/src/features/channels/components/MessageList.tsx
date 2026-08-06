@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/auth-client";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
@@ -19,15 +19,17 @@ import { ConversationStart } from "./ConversationStart";
 import { MessageRow } from "./MessageRow";
 import { SeenBy } from "./SeenBy";
 
+/** Slack-ish tolerance for "parked at the bottom" — survives sub-pixel rounding. */
+const BOTTOM_SLACK_PX = 16;
+
 /**
  * Scrollable message timeline. Resolves author names/avatars from the workspace
  * directory, renders each row via `MessageRow` (with edit/delete for the
  * caller's own messages), and pages older history in on scroll-to-top — keeping
- * the scroll anchored so the view doesn't jump. New messages stick to the bottom.
+ * the scroll anchored so the view doesn't jump. New messages stick to the bottom,
+ * including when the content grows late (read receipts, images) under a reader
+ * who was already there.
  */
-/** Slack-ish tolerance for "parked at the bottom" — survives sub-pixel rounding. */
-const BOTTOM_SLACK_PX = 16;
-
 export function MessageList({
   channel,
   messages,
@@ -82,16 +84,10 @@ export function MessageList({
   };
 
   /**
-   * Re-pin to the bottom when the content GROWS under a reader who was already
-   * there.
-   *
-   * The layout effect below only fires on new messages, but the timeline also
-   * grows for reasons React doesn't drive: the read receipt appears once the
-   * cursors load, an image finishes decoding, an attachment lays out. Each of
-   * those quietly pushed the newest message up out of view a beat after it
-   * settled, which is what made "Seen by" seem to hide below the fold. A reader
-   * who has scrolled up is left alone — being yanked to the bottom mid-read is
-   * worse than the problem.
+   * Re-pin to the bottom when content grows for reasons React doesn't drive —
+   * the read receipt loading, an image decoding, an attachment laying out. Each
+   * pushed the newest message out of view a beat after it settled. A reader who
+   * scrolled up is left alone.
    */
   useEffect(() => {
     const el = containerRef.current;
@@ -122,7 +118,6 @@ export function MessageList({
 
   const authorName = (m: EchoMessage): string => {
     if (m.authorActive === false) return "Former member";
-    // if (m.authorId === myId) return "You";
     // Prefer the live directory (renames stay fresh); fall back to the author
     // snapshot the server embeds on read paths so a cold refresh never flashes a
     // raw id. The "…" placeholder only shows for a live message that arrives
@@ -189,14 +184,14 @@ export function MessageList({
             onEdit={(id, payload) =>
               edit.mutate(
                 { messageId: id, ...payload },
-                { onError: (err) => toast.error(err.message) },
+                { onError: toastError },
               )
             }
             onDelete={(id) =>
-              del.mutate(id, { onError: (err) => toast.error(err.message) })
+              del.mutate(id, { onError: toastError })
             }
             onRetry={(msg) =>
-              retry.mutate(msg, { onError: (err) => toast.error(err.message) })
+              retry.mutate(msg, { onError: toastError })
             }
             onDiscard={discard}
             // The receipt rides ON the newest delivered message, so it can never

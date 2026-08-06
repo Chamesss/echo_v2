@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { paths } from "@/lib/paths";
@@ -30,9 +31,9 @@ export function DeleteWorkspaceSection() {
       onSuccess: () => {
         clearLastWorkspaceId();
         toast.success("Workspace deleted");
-        navigate(paths.home);
+        void navigate(paths.home);
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

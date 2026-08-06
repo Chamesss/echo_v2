@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
-import { getChannel, getChannelReads, joinChannel } from "../../src/modules/channels/channels.service.js";
+import { getChannel, joinChannel } from "../../src/modules/channels/channels.service.js";
+import { getChannelReads } from "../../src/modules/channels/channels.members.js";
 import {
   deleteMessage,
   editMessage,
@@ -13,11 +12,11 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   makeChannel,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * Read receipts: every member's `last_read_seq` is exposed via `getChannelReads`
@@ -39,11 +38,7 @@ beforeAll(async () => {
   await addMember(ws.workspaceId, outsider.id, "member"); // workspace member, not channel member
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 describe("channel read cursors", () => {
   it("reports each member's cursor and advances it monotonically", async () => {

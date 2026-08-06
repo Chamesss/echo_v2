@@ -1,6 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { hub } from "../../src/infrastructure/realtime/hub.js";
 import {
   deleteWorkspace,
@@ -10,10 +8,10 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * Workspace-lifecycle mutations must announce themselves so live clients re-read
@@ -33,11 +31,7 @@ beforeAll(async () => {
 
 afterEach(() => vi.restoreAllMocks());
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 describe("workspace lifecycle events on the realtime bus", () => {
   it("broadcasts workspace.updated when the workspace is renamed", async () => {

@@ -1,28 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import {
-  addChannelMember,
-  assertChannelAccess,
   createChannel,
   deleteChannel,
   getChannel,
   joinChannel,
-  leaveChannel,
-  listChannelMembers,
   listChannels,
-  removeChannelMember,
   updateChannel,
-  type ChannelActor,
 } from "../../src/modules/channels/channels.service.js";
 import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
+import { assertChannelAccess, type ChannelActor } from "../../src/modules/channels/channels.gates.js";
+import { addChannelMember, leaveChannel, listChannelMembers, removeChannelMember } from "../../src/modules/channels/channels.members.js";
 
 let owner: TestUser; // workspace admin + creator of the test channels
 let member: TestUser; // plain workspace member
@@ -43,11 +37,7 @@ beforeAll(async () => {
   await addMember(ws.workspaceId, admin.id, "admin");
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 const ids = (members: { userId: string }[]) => members.map((m) => m.userId);
 

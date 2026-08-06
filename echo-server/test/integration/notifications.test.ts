@@ -1,22 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { controlDb } from "../../src/infrastructure/database/control/client.js";
 import { memberships, notifications } from "../../src/infrastructure/database/control/schema.js";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { hub } from "../../src/infrastructure/realtime/hub.js";
 import {
-  addChannelMember,
   deleteChannel,
   joinChannel,
-  leaveChannel,
-  removeChannelMember,
   updateChannel,
 } from "../../src/modules/channels/channels.service.js";
 import { openOrCreateDm } from "../../src/modules/channels/dm.service.js";
 import {
-  drainAwarenessFanOut,
   markRead as markCursorRead,
   sendMessage,
 } from "../../src/modules/channels/messages.service.js";
@@ -37,6 +40,9 @@ import {
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
+import { drainAwarenessFanOut } from "../../src/modules/channels/messages.awareness.js";
+import { addChannelMember, leaveChannel, removeChannelMember } from "../../src/modules/channels/channels.members.js";
 
 /**
  * The awareness fan-out + notification inbox. EVERY message bumps unread for
@@ -59,11 +65,7 @@ beforeAll(async () => {
 
 afterEach(() => vi.restoreAllMocks());
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 /**
  * Send, then wait for the awareness fan-out.
@@ -81,10 +83,13 @@ async function send(workspaceId: string, channelId: string, authorId: string, bo
   return message;
 }
 
+/** Derived from the real method, so a signature change breaks here. */
+type PublishSpy = MockInstance<typeof hub.publishToUsers>;
+
 /** Kinds of events delivered to `bob` across all `publishToUsers` batch calls. */
-const bobKinds = (spy: ReturnType<typeof vi.spyOn>) =>
+const bobKinds = (spy: PublishSpy) =>
   spy.mock.calls
-    .flatMap((c) => c[0] as Array<{ userId: string; event: { kind: string } }>)
+    .flatMap(([entries]) => entries)
     .filter((e) => e.userId === bob.id)
     .map((e) => e.event.kind);
 
@@ -100,8 +105,8 @@ describe("awareness fan-out", () => {
     expect(kinds).toContain("unread.bump");
     expect(kinds).toContain("notification.created");
     // The author isn't notified about their own message.
-    const recipients = spy.mock.calls.flatMap((c) =>
-      (c[0] as Array<{ userId: string }>).map((e) => e.userId),
+    const recipients = spy.mock.calls.flatMap(([entries]) =>
+      entries.map((e) => e.userId),
     );
     expect(recipients).not.toContain(owner.id);
 

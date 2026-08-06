@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Hash, Lock, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { paths } from "@/lib/paths";
@@ -30,7 +30,7 @@ export function ChannelList() {
           setName("");
           setCreating(false);
         },
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };

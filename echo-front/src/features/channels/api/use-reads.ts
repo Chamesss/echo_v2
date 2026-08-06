@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ChannelReadDTO } from "@server/modules/channels/channels.service";
+import type { ChannelReadDTO } from "@server/modules/channels/channels.members";
 import { apiFetch } from "@/lib/api";
 import { readsKey } from "./keys";
 

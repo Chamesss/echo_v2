@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   LogOut,
   Menu,
@@ -69,9 +70,9 @@ export function AppShell() {
         // the default rather than inheriting this user's appearance.
         clearCachedPreferences();
         toast.success("Signed out");
-        navigate(paths.login);
+        void navigate(paths.login);
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

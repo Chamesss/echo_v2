@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { withTenantSchema } from "../../src/infrastructure/database/tenant/client.js";
 import {
   deleteMessage,
@@ -12,10 +10,10 @@ import {
 import {
   createUser,
   createWorkspace,
-  destroyWorkspace,
   makeChannel,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * The messaging engine is the heart of the "never trust the room" design: the
@@ -33,12 +31,7 @@ beforeAll(async () => {
   ws = await createWorkspace(userId);
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  // Close shared resources so the worker exits cleanly (single test file).
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 /** A fresh channel so each test's sequence starts at 1, independent of others. */
 async function freshChannel(name: string): Promise<string> {

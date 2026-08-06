@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { decodeFrame } from "../../src/infrastructure/realtime/frame.js";
 
 /**
  * The realtime handshake.
@@ -86,7 +87,7 @@ function connect(
       if (opts.sendOnOpen) socket.send(JSON.stringify(opts.sendOnOpen));
     });
     socket.on("message", (data) => {
-      frames.push(JSON.parse(data.toString()));
+      frames.push(JSON.parse(decodeFrame(data)));
       // We only ever expect one reply; close so the test doesn't wait it out.
       socket.close();
     });

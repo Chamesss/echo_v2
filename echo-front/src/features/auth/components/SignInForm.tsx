@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { paths } from "@/lib/paths";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,12 +76,12 @@ export function SignInForm() {
             return;
           }
           toast.success("Signed in");
-          navigate(successTarget);
+          void navigate(successTarget);
         },
         onError: (err) => {
           // Turnstile tokens are single-use — reset so the user can retry.
           captcha.reset();
-          toast.error(err.message);
+          toastError(err);
         },
       },
     );
@@ -90,9 +91,9 @@ export function SignInForm() {
     verifyMut.mutate(values, {
       onSuccess: () => {
         toast.success("Signed in");
-        navigate(successTarget);
+        void navigate(successTarget);
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 
@@ -201,6 +202,7 @@ export function SignInForm() {
               </FormItem>
             )}
           />
+          {/* eslint-disable-next-line react-hooks/refs */}
           <Captcha ref={captcha.ref} onToken={captcha.setToken} />
           <Button
             type="submit"

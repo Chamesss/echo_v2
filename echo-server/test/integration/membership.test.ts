@@ -1,8 +1,6 @@
 import type { Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { controlDb } from "../../src/infrastructure/database/control/client.js";
 import { inviteTokens, memberships } from "../../src/infrastructure/database/control/schema.js";
 import { withTenantSchema } from "../../src/infrastructure/database/tenant/client.js";
@@ -23,7 +21,6 @@ import { requireWorkspaceRole } from "../../src/shared/middleware/require-worksp
 import {
   AppError,
   BadRequestError,
-  ConflictError,
   ForbiddenError,
   NotFoundError,
 } from "../../src/shared/errors/app-error.js";
@@ -31,10 +28,10 @@ import {
   createUser,
   createWorkspace,
   makeChannel,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 let ownerA: TestUser;
 let ownerB: TestUser;
@@ -48,12 +45,7 @@ beforeAll(async () => {
   wsB = await createWorkspace(ownerB.id);
 });
 
-afterAll(async () => {
-  if (wsA) await destroyWorkspace(wsA);
-  if (wsB) await destroyWorkspace(wsB);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(wsA, wsB));
 
 async function isMember(workspaceId: string, userId: string): Promise<boolean> {
   const rows = await controlDb

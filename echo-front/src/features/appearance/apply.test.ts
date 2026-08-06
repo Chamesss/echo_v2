@@ -146,8 +146,9 @@ describe("index.html boot script", () => {
   const bootScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
 
   function runBootScript() {
-    // eslint-disable-next-line no-new-func -- executing the shipped script is
-    // the entire point of this test; anything less wouldn't catch drift.
+    // Executing the shipped script is the entire point of this test; anything
+    // less wouldn't catch drift if the boot script changed.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
     new Function(bootScript)();
   }
 

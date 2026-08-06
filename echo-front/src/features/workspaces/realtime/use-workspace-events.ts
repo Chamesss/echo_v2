@@ -48,13 +48,13 @@ export function useWorkspaceEvents() {
         // ── Workspace ─────────────────────────────────────────────────────
         case "workspace.updated":
           // Renamed → re-read the workspace (name in rail/switcher/header).
-          qc.invalidateQueries({ queryKey: workspaceKey(workspaceId) });
-          qc.invalidateQueries({ queryKey: myWorkspacesKey });
+          void qc.invalidateQueries({ queryKey: workspaceKey(workspaceId) });
+          void qc.invalidateQueries({ queryKey: myWorkspacesKey });
           break;
         case "directory.updated":
           // A member changed their name/avatar → re-read the directory so author
           // names/avatars refresh live across every open conversation.
-          qc.invalidateQueries({ queryKey: directoryKey(workspaceId) });
+          void qc.invalidateQueries({ queryKey: directoryKey(workspaceId) });
           break;
         case "presence.changed":
           // The one event here that PATCHES instead of invalidating. Everywhere
@@ -88,7 +88,7 @@ export function useWorkspaceEvents() {
         case "channel.created":
         case "channel.updated":
           invalidateConversationLists(qc, workspaceId);
-          qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, event.channelId) });
+          void qc.invalidateQueries({ queryKey: channelMembersKey(workspaceId, event.channelId) });
           break;
         case "channel.deleted":
           invalidateConversationLists(qc, workspaceId);
@@ -99,7 +99,7 @@ export function useWorkspaceEvents() {
             paths.workspaceChannel(workspaceId, event.channelId)
           ) {
             toast.info("This channel was deleted");
-            navigate(paths.workspace(workspaceId), { replace: true });
+            void navigate(paths.workspace(workspaceId), { replace: true });
           }
           break;
 
@@ -109,10 +109,10 @@ export function useWorkspaceEvents() {
         case "member.removed":
         case "member.added":
         case "member.role_changed": {
-          qc.invalidateQueries({ queryKey: membersKey(workspaceId) });
-          qc.invalidateQueries({ queryKey: directoryKey(workspaceId) });
-          qc.invalidateQueries({ queryKey: myWorkspacesKey });
-          qc.invalidateQueries({ queryKey: invitesKey(workspaceId) });
+          void qc.invalidateQueries({ queryKey: membersKey(workspaceId) });
+          void qc.invalidateQueries({ queryKey: directoryKey(workspaceId) });
+          void qc.invalidateQueries({ queryKey: myWorkspacesKey });
+          void qc.invalidateQueries({ queryKey: invitesKey(workspaceId) });
 
           if (event.kind === "member.removed") {
             if (event.userId === myUserId) {
@@ -120,7 +120,7 @@ export function useWorkspaceEvents() {
               // here, so leave the workspace shell for the dashboard.
               clearLastWorkspaceId();
               toast.info("You're no longer a member of this workspace");
-              navigate(paths.home, { replace: true });
+              void navigate(paths.home, { replace: true });
               return;
             }
             // Someone else departed: withhold their messages in every loaded
@@ -132,7 +132,7 @@ export function useWorkspaceEvents() {
             // caches: the message timelines were just reconciled locally above,
             // and refetching them would discard paged-in history for nothing.
             invalidateConversationLists(qc, workspaceId);
-            qc.invalidateQueries({
+            void qc.invalidateQueries({
               predicate: (q) =>
                 q.queryKey[0] === "ws" &&
                 q.queryKey[1] === workspaceId &&
@@ -142,7 +142,7 @@ export function useWorkspaceEvents() {
           } else if (event.kind === "member.added") {
             // A (re)joining member's messages may have been withheld; the real
             // bodies live only on the server, so refetch to restore them.
-            qc.invalidateQueries({ queryKey: ["ws", workspaceId, "channel"] });
+            void qc.invalidateQueries({ queryKey: ["ws", workspaceId, "channel"] });
           }
           break;
         }
@@ -156,7 +156,7 @@ export function useWorkspaceEvents() {
   useEffect(() => {
     return client.onStatus((status, reconnected) => {
       if (status === "open" && reconnected) {
-        qc.invalidateQueries({ queryKey: presenceKey(workspaceId) });
+        void qc.invalidateQueries({ queryKey: presenceKey(workspaceId) });
       }
     });
   }, [client, qc, workspaceId]);

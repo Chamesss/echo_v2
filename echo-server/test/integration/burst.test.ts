@@ -1,18 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
-import { getChannelReads } from "../../src/modules/channels/channels.service.js";
+import { getChannelReads } from "../../src/modules/channels/channels.members.js";
 import { openOrCreateDm } from "../../src/modules/channels/dm.service.js";
 import { listMessages, markRead, sendMessage } from "../../src/modules/channels/messages.service.js";
 import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * Ten messages inside a second — the stress case that surfaced a lost "Seen by".
@@ -37,11 +35,7 @@ beforeAll(async () => {
   channelId = (await openOrCreateDm(ws.workspaceId, author.id, [reader.id])).id;
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 describe("a burst of concurrent sends", () => {
   it("assigns a gapless sequence even when every send races", async () => {

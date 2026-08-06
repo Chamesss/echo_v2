@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,7 +37,7 @@ export function ProfileForm() {
   const onSubmit = (values: UpdateProfileInput) => {
     mutate(values, {
       onSuccess: () => toast.success("Profile updated"),
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

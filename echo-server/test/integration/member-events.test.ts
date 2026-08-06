@@ -1,6 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { hub } from "../../src/infrastructure/realtime/hub.js";
 import {
   addMemberByEmail,
@@ -12,10 +10,10 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * Roster mutations must announce themselves on the realtime bus so live clients
@@ -35,11 +33,7 @@ beforeAll(async () => {
 
 afterEach(() => vi.restoreAllMocks());
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 describe("member events on the realtime bus", () => {
   it("publishes member.added when an admin adds a member by email", async () => {

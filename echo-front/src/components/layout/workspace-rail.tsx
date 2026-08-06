@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { LogOut, Plus } from "lucide-react";
 import { Image } from "@/components/ui/image";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ import {
   type Workspace,
 } from "@/features/workspaces/api/use-my-workspaces";
 import { useWorkspaceUnread } from "@/features/notifications/hooks/use-workspace-unread";
+import { useDismissable } from "@/lib/use-dismissable";
 import { NotificationBell } from "@/features/notifications/components/NotificationBell";
 
 /**
@@ -114,20 +115,7 @@ function UserMenu() {
   const { data: session } = useSession();
   const { mutate: signOut, isPending } = useSignOut();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => setOpen(false), [location.pathname]);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
+  const { open, toggle, ref } = useDismissable();
 
   const handleSignOut = () =>
     signOut(undefined, {
@@ -137,9 +125,9 @@ function UserMenu() {
         // the default rather than inheriting this user's appearance.
         clearCachedPreferences();
         toast.success("Signed out");
-        navigate(paths.login);
+        void navigate(paths.login);
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
 
   const initial = (session?.user.name ?? "?").charAt(0).toUpperCase();
@@ -148,7 +136,7 @@ function UserMenu() {
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"

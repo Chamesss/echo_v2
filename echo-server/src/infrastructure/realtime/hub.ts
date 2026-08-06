@@ -190,11 +190,6 @@ export class RealtimeHub {
     await this.bus.publish(workspaceNotifyChannel(workspaceId), event);
   }
 
-  /** Publish a user-scoped awareness event (unread bump / notification). */
-  async publishToUser(userId: string, event: UserEvent): Promise<void> {
-    await this.bus.publish(userNotifyChannel(userId), event);
-  }
-
   /**
    * Publish many user-scoped events in a single backplane round-trip — the
    * message fan-out path, where one message notifies every other member.

@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -56,12 +57,12 @@ export function SignUpForm() {
       {
         onSuccess: () => {
           toast.success("Account created");
-          navigate(inviteToken ? paths.acceptInvite(inviteToken) : "/");
+          void navigate(inviteToken ? paths.acceptInvite(inviteToken) : "/");
         },
         onError: (err) => {
           // Turnstile tokens are single-use — reset so the user can retry.
           captcha.reset();
-          toast.error(err.message);
+          toastError(err);
         },
       },
     );
@@ -131,6 +132,7 @@ export function SignUpForm() {
               </FormItem>
             )}
           />
+          {/* eslint-disable-next-line react-hooks/refs */}
           <Captcha ref={captcha.ref} onToken={captcha.setToken} />
           <Button type="submit" className="w-full" disabled={isPending}>
             {isPending ? "Creating account…" : "Create account"}

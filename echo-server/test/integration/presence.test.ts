@@ -1,6 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { hub } from "../../src/infrastructure/realtime/hub.js";
 import * as presence from "../../src/infrastructure/realtime/presence.js";
 import { listOnlineMembers } from "../../src/modules/members/presence.service.js";
@@ -9,10 +7,10 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * Presence is derived, not stored: "online" means the hub holds a `/ws/user`
@@ -37,12 +35,7 @@ beforeAll(async () => {
   other = await createWorkspace(a.id);
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  if (other) await destroyWorkspace(other);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws, other));
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -61,7 +61,7 @@ export const loadWorkspace: RequestHandler = async (req, _res, next) => {
       .where(
         and(
           eq(memberships.userId, req.user.id),
-          eq(memberships.workspaceId, workspaceId as string),
+          eq(memberships.workspaceId, workspaceId),
         ),
       )
       .limit(1);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Ban,
   LogIn,
@@ -68,7 +69,7 @@ export function AdminUsersTable() {
       {
         onSuccess: () =>
           toast.success(isAdmin ? "Demoted to user" : "Promoted to admin"),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };
@@ -79,7 +80,7 @@ export function AdminUsersTable() {
       { userId: id, banReason: reason || undefined },
       {
         onSuccess: () => toast.success("User banned"),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };
@@ -89,7 +90,7 @@ export function AdminUsersTable() {
       { userId: id },
       {
         onSuccess: () => toast.success("User unbanned"),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };
@@ -101,7 +102,7 @@ export function AdminUsersTable() {
         // Full reload so every session-derived bit of state re-renders as the
         // impersonated user.
         onSuccess: () => window.location.assign("/"),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };
@@ -113,7 +114,7 @@ export function AdminUsersTable() {
       { userId: id },
       {
         onSuccess: () => toast.success("User deleted"),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };

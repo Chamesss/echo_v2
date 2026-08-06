@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { AuthLayout } from "@/components/layout/auth-layout";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
@@ -43,11 +44,11 @@ export default function AcceptInvitePage() {
       onSuccess: (result) => {
         setLastWorkspaceId(result.workspaceId);
         toast.success("You've joined the workspace");
-        navigate(paths.workspace(result.workspaceId));
+        void navigate(paths.workspace(result.workspaceId));
       },
       onError: (err) => {
         firedRef.current = false; // let the manual button retry
-        toast.error(err.message);
+        toastError(err);
       },
     });
   }, [invite?.status, emailMatches, accept, navigate]);
@@ -128,7 +129,7 @@ export default function AcceptInvitePage() {
             className="w-full"
             onClick={async () => {
               await signOut();
-              navigate(withInvite(paths.login));
+              void navigate(withInvite(paths.login));
             }}
           >
             Sign out &amp; use {invite.email}

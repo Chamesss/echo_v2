@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { joinChannel } from "../../src/modules/channels/channels.service.js";
 import { listMessages, sendMessage } from "../../src/modules/channels/messages.service.js";
 import { addMemberByEmail, removeMember } from "../../src/modules/members/members.service.js";
@@ -9,11 +7,11 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   makeChannel,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * Departed-member message handling: a message whose author has left the
@@ -33,11 +31,7 @@ beforeAll(async () => {
   await addMember(ws.workspaceId, bob.id, "member");
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 describe("departed-author message hiding", () => {
   it("withholds a departed member's messages, then restores them on rejoin", async () => {

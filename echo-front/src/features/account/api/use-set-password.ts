@@ -27,7 +27,7 @@ export function useSetPassword() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: linkedAccountsKey });
+      void queryClient.invalidateQueries({ queryKey: linkedAccountsKey });
     },
   });
 }

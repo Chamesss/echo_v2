@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,9 +49,9 @@ export function DangerZone() {
       onSuccess: () => {
         clearLastWorkspaceId();
         toast.success("Your account has been deleted");
-        navigate("/login");
+        void navigate("/login");
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

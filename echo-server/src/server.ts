@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
 import { env } from "./config/env.js";
 import { app } from "./app.js";
+import { migrateOnBoot } from "./boot/migrate-on-boot.js";
 import { attachRealtimeServer } from "./infrastructure/realtime/server.js";
 import { backplane } from "./infrastructure/realtime/backplane.js";
+import { drainAwarenessFanOut } from "./modules/channels/messages.awareness.js";
 import { pool } from "./infrastructure/database/pool.js";
 import { logger } from "./shared/logger/logger.js";
 
@@ -16,6 +18,16 @@ import { logger } from "./shared/logger/logger.js";
  */
 const server = createServer(app);
 const wss = attachRealtimeServer(server);
+
+// Bind the port only once the expected schema is present — serving against a
+// stale database looks healthy to every check while failing real work.
+try {
+  await migrateOnBoot();
+} catch (err) {
+  logger.error({ err }, "database migration failed — refusing to start");
+  await pool.end();
+  process.exit(1);
+}
 
 server.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, `listening on http://localhost:${env.PORT}`);
@@ -39,6 +51,10 @@ const shutdown = async (signal: NodeJS.Signals) => {
     client.close(1001, "Server shutting down");
   }
   wss.close();
+  // The awareness fan-out is detached from the send, so a redeploy in that gap
+  // would drop unread bumps + notifications. Before the backplane/pool close,
+  // since those writes need both.
+  await drainAwarenessFanOut();
   await backplane.close();
   server.close();
   await pool.end();

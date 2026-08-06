@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +41,7 @@ export function InvitePanel({ workspaceId }: { workspaceId: string }) {
           form.setError("email", { message: "That person is already a member" });
           return;
         }
-        toast.error(err.message);
+        toastError(err);
       },
     });
   };

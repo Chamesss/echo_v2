@@ -22,6 +22,17 @@ const schema = z.object({
     .default("development"),
   PORT: z.coerce.number().default(4000),
   DATABASE_URL: z.url(),
+  /**
+   * Ceiling on any single statement. Tunable because it also bounds waiting on a
+   * row lock: a channel's writers serialize, so a burst's last writer waits
+   * ~(writers × round-trip). Raise it for a distant database, not to paper over
+   * a slow query.
+   */
+  DB_STATEMENT_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .default(15_000),
   BETTER_AUTH_SECRET: z
     .string()
     .min(8, "BETTER_AUTH_SECRET must be at least 8 characters"),

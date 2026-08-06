@@ -16,7 +16,7 @@ export function useUpdateWorkspace(workspaceId: string) {
       apiFetch<Workspace>(`/api/workspaces/${workspaceId}`, { method: "PATCH", body: input }),
     onSuccess: (workspace) => {
       qc.setQueryData(workspaceKey(workspaceId), workspace);
-      qc.invalidateQueries({ queryKey: myWorkspacesKey });
+      void qc.invalidateQueries({ queryKey: myWorkspacesKey });
     },
   });
 }

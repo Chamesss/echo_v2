@@ -29,7 +29,7 @@ export function useCreateWorkspace() {
         body: input,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: myWorkspacesKey });
+      void queryClient.invalidateQueries({ queryKey: myWorkspacesKey });
     },
   });
 }

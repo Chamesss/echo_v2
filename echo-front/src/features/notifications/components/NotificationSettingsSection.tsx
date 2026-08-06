@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,7 @@ export function NotificationSettingsSection({ workspaceId }: { workspaceId: stri
 
   const toggle = (next: boolean) =>
     setEnabled.mutate(next, {
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
 
   const on = enabled ?? true;

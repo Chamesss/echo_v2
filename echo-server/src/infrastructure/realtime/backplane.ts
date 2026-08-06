@@ -31,6 +31,13 @@ export interface Backplane {
   publishMany(messages: ReadonlyArray<{ channel: string; event: unknown }>): Promise<void>;
   /** Receive events for a NOTIFY channel; returns an unsubscribe handle. */
   subscribe(channel: string, handler: (event: unknown) => void): () => void;
+  /**
+   * Whether RECEIVING works — for `/health/ready`. Publishing goes through the
+   * pool and survives a dead LISTEN client; receiving doesn't, and local sockets
+   * are fed through the same loopback. True with no subscriptions yet (the
+   * client is lazy, so "no client" then means idle, not broken).
+   */
+  isDeliveryHealthy(): boolean;
   close(): Promise<void>;
 }
 
@@ -98,6 +105,13 @@ export class PgNotifyBackplane implements Backplane {
       this.connecting = null;
     }
     return this.client!;
+  }
+
+  isDeliveryHealthy(): boolean {
+    if (this.closed) return false;
+    // Nothing subscribed yet → the lazy client hasn't been needed. Reporting
+    // unhealthy here would fail readiness on every fresh boot.
+    return this.handlers.size === 0 || this.client !== null;
   }
 
   private onClientError(err: Error): void {

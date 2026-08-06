@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { Link } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -48,7 +49,7 @@ export function ForgotPasswordForm() {
         onError: (err) => {
           // Turnstile tokens are single-use — reset so the user can retry.
           captcha.reset();
-          toast.error(err.message);
+          toastError(err);
         },
       },
     );
@@ -100,6 +101,7 @@ export function ForgotPasswordForm() {
             </FormItem>
           )}
         />
+        {/* eslint-disable-next-line react-hooks/refs */}
         <Captcha ref={captcha.ref} onToken={captcha.setToken} />
         <Button type="submit" className="w-full" disabled={isPending}>
           {isPending ? "Sending…" : "Send reset link"}

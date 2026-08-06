@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { ShieldCheck, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,7 +80,7 @@ export function TwoFactorSection() {
         });
         enableForm.reset();
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 
@@ -92,7 +93,7 @@ export function TwoFactorSection() {
         verifyForm.reset();
         await refetch();
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 
@@ -104,7 +105,7 @@ export function TwoFactorSection() {
         disableForm.reset();
         await refetch();
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Crown, ShieldCheck, ShieldOff, UserMinus } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ export function MembersTable({ workspaceId, canManage }: { workspaceId: string; 
       { userId: m.userId, role: next },
       {
         onSuccess: () => toast.success(next === "admin" ? "Promoted to admin" : "Changed to member"),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };
@@ -47,7 +48,7 @@ export function MembersTable({ workspaceId, canManage }: { workspaceId: string; 
     if (!window.confirm(`Remove ${m.name || m.email} from this workspace?`)) return;
     removeMember.mutate(m.userId, {
       onSuccess: () => toast.success("Member removed"),
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

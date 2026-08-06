@@ -2,6 +2,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from "@/lib/zod-resolver";
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
+import { toastError } from '@/lib/toast-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -56,9 +57,9 @@ export function ResetPasswordForm() {
       {
         onSuccess: () => {
           toast.success('Password updated');
-          navigate('/login');
+          void navigate('/login');
         },
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };

@@ -39,6 +39,10 @@ export function AttachmentPreviewTile({
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!(file && isImage)) {
+      // Unavoidable, and the rule is wrong here: `URL.createObjectURL` is a side
+      // effect that cannot run during render, so this state can ONLY come from an
+      // effect. Clearing it is the same statement in reverse.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setObjectUrl(null);
       return;
     }

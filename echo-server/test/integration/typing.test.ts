@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { decodeFrame } from "../../src/infrastructure/realtime/frame.js";
 
 /**
  * The typing frame — the only thing a client pushes that isn't a subscription.
@@ -78,7 +79,7 @@ async function withSocket(
       socket.on("error", reject);
       socket.on("open", () => socket.send(JSON.stringify({ t: "subscribe", channelIds: subscribeTo })));
       socket.on("message", (data) => {
-        const frame = JSON.parse(data.toString());
+        const frame = JSON.parse(decodeFrame(data));
         if (frame.t === "subscribed") {
           clearTimeout(timer);
           resolve();
@@ -90,7 +91,7 @@ async function withSocket(
     // ahead of it have already been processed.
     await new Promise<void>((resolve) => {
       socket.on("message", (data) => {
-        if (JSON.parse(data.toString()).t === "pong") resolve();
+        if (JSON.parse(decodeFrame(data)).t === "pong") resolve();
       });
       socket.send(JSON.stringify({ t: "ping" }));
     });

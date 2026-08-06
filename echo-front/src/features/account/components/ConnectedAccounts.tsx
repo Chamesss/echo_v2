@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import { toastError } from '@/lib/toast-error';
 import { KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SOCIAL_PROVIDERS, type ProviderId } from '@/features/auth/social-providers';
@@ -35,7 +36,7 @@ export function ConnectedAccounts() {
 
   const handleConnect = (provider: ProviderId) => {
     // On success this redirects to the provider, so we only ever hit onError.
-    linkSocial.mutate(provider, { onError: (err) => toast.error(err.message) });
+    linkSocial.mutate(provider, { onError: toastError });
   };
 
   const handleDisconnect = (providerId: ProviderId, accountId: string, label: string) => {
@@ -43,7 +44,7 @@ export function ConnectedAccounts() {
       { providerId, accountId },
       {
         onSuccess: () => toast.success(`${label} disconnected`),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };

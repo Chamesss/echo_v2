@@ -25,7 +25,7 @@ const workspace = { id: "w1", slug: "w", name: "W", role: "member" as const, isO
 
 beforeEach(() => {
   vi.mocked(apiFetch).mockReset();
-  vi.mocked(apiFetch).mockResolvedValue(POLICY as never);
+  vi.mocked(apiFetch).mockResolvedValue(POLICY);
 });
 
 function wrap(ui: ReactNode) {

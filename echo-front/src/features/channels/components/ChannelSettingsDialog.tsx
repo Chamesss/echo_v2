@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { LogOut, Trash2, UserMinus, X } from "lucide-react";
+import { toastError } from "@/lib/toast-error";
+import { LogOut, Trash2, UserMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { paths } from "@/lib/paths";
 import { useSession } from "@/lib/auth-client";
 import { useCurrentWorkspace } from "@/features/workspaces/hooks/use-current-workspace";
@@ -20,10 +22,10 @@ import {
 } from "../api/use-channel-admin";
 
 /**
- * Channel settings modal: rename / topic / archive / delete (admin or creator),
- * private-channel member management (any member may add; admin/creator may
- * remove), and leave (any member). Archive/delete/leave navigate back to the
- * workspace home since the channel becomes inaccessible from the list.
+ * Settings for a channel OR a group conversation — same form, different authority.
+ * A channel answers to a workspace admin or its creator; a group belongs to its
+ * participants (any member renames/adds, only the creator evicts, no danger zone).
+ * Anyone may leave either; archive/delete/leave navigate home.
  */
 export function ChannelSettingsDialog({
   channel,
@@ -55,76 +57,43 @@ export function ChannelSettingsDialog({
   // authority for evicting someone else. Anyone can still leave.
   const canRemoveOthers = isGroup ? channel.createdBy === myId : canManage;
 
-  // Close on Escape for keyboard users.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const goHome = () => {
     onClose();
-    navigate(paths.workspace(workspace.id));
+    void navigate(paths.workspace(workspace.id));
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-      role="presentation"
+    <Modal
+      label="Channel settings"
+      onClose={onClose}
+      title={isGroup ? "Conversation settings" : "Channel settings"}
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Channel settings"
-      >
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-          <h2 className="font-semibold text-foreground">
-            {isGroup ? "Conversation settings" : "Channel settings"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </header>
+      <div className="space-y-6 overflow-y-auto p-4">
+        {canManage && <DetailsSection channel={channel} isGroup={isGroup} />}
 
-        <div className="space-y-6 overflow-y-auto p-4">
-          {canManage && <DetailsSection channel={channel} isGroup={isGroup} />}
-
-          {(channel.type === "private" || isGroup) && (
-            <MembersSection
-              channel={channel}
-              canAdd={canManage}
-              canRemove={canRemoveOthers}
-              isGroup={isGroup}
-            />
-          )}
-
-          <LeaveSection
-            channelId={channel.id}
+        {(channel.type === "private" || isGroup) && (
+          <MembersSection
+            channel={channel}
+            canAdd={canManage}
+            canRemove={canRemoveOthers}
             isGroup={isGroup}
-            onLeft={goHome}
           />
+        )}
 
-          {/* No danger zone for a conversation: archiving would hide it from
-              everyone with no way back, and deleting is blocked server-side.
-              Leaving is the exit. */}
-          {canManage && !isGroup && (
-            <DangerSection
-              channel={channel}
-              onArchived={goHome}
-              onDeleted={goHome}
-            />
-          )}
-        </div>
+        <LeaveSection channelId={channel.id} isGroup={isGroup} onLeft={goHome} />
+
+        {/* No danger zone for a conversation: archiving would hide it from
+            everyone with no way back, and deleting is blocked server-side.
+            Leaving is the exit. */}
+        {canManage && !isGroup && (
+          <DangerSection
+            channel={channel}
+            onArchived={goHome}
+            onDeleted={goHome}
+          />
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -175,7 +144,7 @@ function DetailsSection({
       {
         onSuccess: () =>
           toast.success(isGroup ? "Conversation updated" : "Channel updated"),
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };
@@ -243,7 +212,7 @@ function MembersSection({
         toast.success("Member added");
         setSelected("");
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 
@@ -311,7 +280,7 @@ function MembersSection({
                 aria-label={`Remove ${m.name}`}
                 onClick={() =>
                   remove.mutate(m.userId, {
-                    onError: (err) => toast.error(err.message),
+                    onError: toastError,
                   })
                 }
               >
@@ -351,7 +320,7 @@ function LeaveSection({
               );
               onLeft();
             },
-            onError: (err) => toast.error(err.message),
+            onError: toastError,
           })
         }
       >
@@ -382,7 +351,7 @@ function DangerSection({
           toast.success("Channel archived");
           onArchived();
         },
-        onError: (err) => toast.error(err.message),
+        onError: toastError,
       },
     );
   };
@@ -399,7 +368,7 @@ function DangerSection({
         toast.success("Channel deleted");
         onDeleted();
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

@@ -71,7 +71,7 @@ export function useUnauthorizedRedirect() {
         const path = window.location.pathname;
         const onPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
         if (!onPublic) {
-          navigate("/login", { replace: true });
+          void navigate("/login", { replace: true });
         }
         queryClient.clear();
       } finally {

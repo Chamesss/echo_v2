@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { validate } from "../../shared/middleware/validate.js";
 import { asyncHandler } from "../../shared/middleware/async-handler.js";
+import { rateLimit, CREATE_LIMIT, SEND_MESSAGE_LIMIT } from "../../shared/middleware/rate-limit.js";
 import { presignAttachmentBody } from "../attachments/attachments.dto.js";
 import { presignAttachmentController } from "../attachments/attachments.controller.js";
 import {
@@ -54,6 +55,7 @@ export const channelsRouter = Router({ mergeParams: true });
 channelsRouter.get("/", asyncHandler(listChannelsController));
 channelsRouter.post(
   "/",
+  rateLimit(CREATE_LIMIT),
   validate({ body: createChannelBody }),
   asyncHandler(createChannelController),
 );
@@ -85,8 +87,11 @@ channelsRouter.get(
   validate({ query: listMessagesQuery }),
   asyncHandler(listMessagesController),
 );
+// Rate-limited as an abuse backstop only — 300/min is far past what mashing send
+// can reach. See `rate-limit.ts` for why it's sized that way.
 channelsRouter.post(
   "/:channelId/messages",
+  rateLimit(SEND_MESSAGE_LIMIT),
   validate({ body: sendMessageBody }),
   asyncHandler(sendMessageController),
 );

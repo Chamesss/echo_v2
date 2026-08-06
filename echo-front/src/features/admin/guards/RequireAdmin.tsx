@@ -1,8 +1,8 @@
-import { useRef } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useSession } from "@/lib/auth-client";
 import { LoadingScreen } from "@/components/loading-screen";
 import { paths } from "@/lib/paths";
+import { useEverResolved } from "@/lib/use-ever-resolved";
 
 /**
  * Gate for the /admin subtree — used as a layout route in `router.tsx`. Layered
@@ -19,12 +19,11 @@ import { paths } from "@/lib/paths";
  */
 export function RequireAdmin() {
   const { data: session, isPending } = useSession();
+  const everResolved = useEverResolved(isPending);
   const location = useLocation();
 
-  const everResolved = useRef(false);
-  if (!isPending) everResolved.current = true;
 
-  if (isPending && !everResolved.current) return <LoadingScreen />;
+  if (isPending && !everResolved) return <LoadingScreen />;
   if (!session?.user) return <Navigate to={paths.login} state={{ from: location }} replace />;
   if (session.user.role !== "admin") return <Navigate to={paths.home} replace />;
 

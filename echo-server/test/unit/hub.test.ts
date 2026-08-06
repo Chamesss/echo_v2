@@ -37,7 +37,11 @@ class LoopbackBackplane implements Backplane {
       this.handlers.set(channel, set);
     }
     set.add(handler);
-    return () => set!.delete(handler);
+    return () => set.delete(handler);
+  }
+  // In-process delivery has no connection to lose.
+  isDeliveryHealthy(): boolean {
+    return true;
   }
   async close(): Promise<void> {}
 }
@@ -330,7 +334,7 @@ describe("RealtimeHub routing", () => {
       channelType: "channel",
       updatedSeq: 5,
     };
-    await hub.publishToUser("ua", event);
+    await hub.publishToUsers([{ userId: "ua", event }]);
 
     expect(tab1.events()).toContainEqual(event);
     expect(tab2.events()).toContainEqual(event);
@@ -344,13 +348,18 @@ describe("RealtimeHub routing", () => {
     hub.addUserSocket(tab.ws, { userId: "ua" });
     hub.removeUserSocket(tab.ws);
 
-    await hub.publishToUser("ua", {
-      kind: "unread.bump",
-      workspaceId: "w1",
-      channelId: "c9",
-      channelType: "dm",
-      updatedSeq: 1,
-    });
+    await hub.publishToUsers([
+      {
+        userId: "ua",
+        event: {
+          kind: "unread.bump",
+          workspaceId: "w1",
+          channelId: "c9",
+          channelType: "dm",
+          updatedSeq: 1,
+        },
+      },
+    ]);
 
     expect(tab.events()).toHaveLength(0);
   });

@@ -13,8 +13,6 @@ const s3mock = vi.hoisted(() => ({
 }));
 vi.mock("../../src/infrastructure/storage/s3-service.js", () => ({ s3Service: s3mock }));
 
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { joinChannel, type ChannelDTO } from "../../src/modules/channels/channels.service.js";
 import {
   presignAttachment,
@@ -30,11 +28,11 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   makeChannel,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 let owner: TestUser;
 let outsider: TestUser;
@@ -48,11 +46,7 @@ beforeAll(async () => {
   channel = await makeChannel(ws.workspaceId, owner.id, "public", "files");
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 beforeEach(() => {
   s3mock.createPresignedUploadUrl.mockReset();

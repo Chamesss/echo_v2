@@ -28,7 +28,7 @@ function mockApi(invite = INVITE) {
   vi.mocked(apiFetch).mockImplementation((path: string) =>
     Promise.resolve(
       path.endsWith("/accept") ? { workspaceId: "w1", role: "member" } : invite,
-    ) as never,
+    ),
   );
 }
 

@@ -41,8 +41,11 @@ export const pool = new pg.Pool({
    * against this database, where the top-level key leaves `SHOW
    * statement_timeout` at `0` (no limit) while this form reports `15s`. Passed
    * the other way it is a silent no-op: no error, no warning, just no timeout.
+   *
+   * Also covers time BLOCKED on a row lock, not just executing — hence
+   * configurable. A `lock_timeout` wouldn't help; it would cancel waiters sooner.
    */
-  options: "-c search_path=control,public -c statement_timeout=15000",
+  options: `-c search_path=control,public -c statement_timeout=${env.DB_STATEMENT_TIMEOUT_MS}`,
 });
 
 /**

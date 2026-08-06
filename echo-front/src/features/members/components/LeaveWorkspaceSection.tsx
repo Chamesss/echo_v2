@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { paths } from "@/lib/paths";
@@ -22,9 +23,9 @@ export function LeaveWorkspaceSection({ workspaceId }: { workspaceId: string }) 
       onSuccess: () => {
         clearLastWorkspaceId();
         toast.success("You left the workspace");
-        navigate(paths.home);
+        void navigate(paths.home);
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
-import { toast } from "sonner";
-import { X } from "lucide-react";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { paths } from "@/lib/paths";
 import { useSession } from "@/lib/auth-client";
@@ -30,12 +30,6 @@ export function NewDmDialog({ onClose }: { onClose: () => void }) {
   const openDm = useOpenDm(workspace.id);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const candidates = roster.filter((m) => m.userId !== session?.user.id);
   // Mirrors `openDmBody`'s `.max(9)`. Enforced here so hitting the ceiling
   // disables the remaining boxes rather than failing with a raw server error.
@@ -55,93 +49,76 @@ export function NewDmDialog({ onClose }: { onClose: () => void }) {
     openDm.mutate(ids, {
       onSuccess: (dm) => {
         onClose();
-        navigate(paths.workspaceChannel(workspace.id, dm.id));
+        void navigate(paths.workspaceChannel(workspace.id, dm.id));
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-      role="presentation"
+    <Modal
+      size="sm"
+      label="New direct message"
+      onClose={onClose}
+      title={selected.size > 1 ? "New group conversation" : "New message"}
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="New direct message"
-      >
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-          <h2 className="font-semibold text-foreground">
-            {selected.size > 1 ? "New group conversation" : "New message"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </header>
-
-        <div className="overflow-y-auto p-2">
-          {candidates.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">No one else is in this workspace yet.</p>
-          ) : (
-            <>
-              {/* Multi-select was already supported and completely unadvertised,
-                  so group conversations were effectively undiscoverable. */}
-              <p className="px-3 pb-1 pt-2 text-xs text-muted-foreground">
-                Pick one person, or several to start a group.
-              </p>
-              {candidates.map((m) => {
-                const checked = selected.has(m.userId);
-                const disabled = !checked && atCapacity;
-                return (
-                  <label
-                    key={m.userId}
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
-                      disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-accent",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={disabled}
-                      onChange={() => toggle(m.userId)}
-                    />
-                    <span className="min-w-0 truncate">
-                      <span className="font-medium text-foreground">{m.name}</span>{" "}
-                      <span className="text-muted-foreground">{m.email}</span>
-                    </span>
-                  </label>
-                );
-              })}
-            </>
-          )}
-        </div>
-
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border p-3">
-          <span className="mr-auto text-xs text-muted-foreground">
-            {selected.size === 0
-              ? "Pick people"
-              : atCapacity
-                ? `${selected.size} selected (max)`
-                : `${selected.size} selected`}
-          </span>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" disabled={selected.size === 0 || openDm.isPending} onClick={start}>
-            {openDm.isPending ? "Opening…" : "Start"}
-          </Button>
-        </footer>
+      <div className="overflow-y-auto p-2">
+        {candidates.length === 0 ? (
+          <p className="p-3 text-sm text-muted-foreground">
+            No one else is in this workspace yet.
+          </p>
+        ) : (
+          <>
+            {/* Multi-select was already supported and completely unadvertised,
+                so group conversations were effectively undiscoverable. */}
+            <p className="px-3 pb-1 pt-2 text-xs text-muted-foreground">
+              Pick one person, or several to start a group.
+            </p>
+            {candidates.map((m) => {
+              const checked = selected.has(m.userId);
+              const disabled = !checked && atCapacity;
+              return (
+                <label
+                  key={m.userId}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
+                    disabled
+                      ? "cursor-not-allowed opacity-50"
+                      : "cursor-pointer hover:bg-accent",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => toggle(m.userId)}
+                  />
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium text-foreground">{m.name}</span>{" "}
+                    <span className="text-muted-foreground">{m.email}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </>
+        )}
       </div>
-    </div>
+
+      <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border p-3">
+        <span className="mr-auto text-xs text-muted-foreground">
+          {selected.size === 0
+            ? "Pick people"
+            : atCapacity
+              ? `${selected.size} selected (max)`
+              : `${selected.size} selected`}
+        </span>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={selected.size === 0 || openDm.isPending} onClick={start}>
+          {openDm.isPending ? "Opening…" : "Start"}
+        </Button>
+      </footer>
+    </Modal>
   );
 }

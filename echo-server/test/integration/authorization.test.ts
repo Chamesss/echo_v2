@@ -1,8 +1,6 @@
 import type { Request, Response } from "express";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { controlDb } from "../../src/infrastructure/database/control/client.js";
 import { authEvents } from "../../src/infrastructure/database/control/schema.js";
 import { WorkspaceEventName } from "../../src/infrastructure/audit/audit-log.js";
@@ -14,10 +12,10 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
 
 /**
  * The authorization layer: workspace membership + role enforcement and the
@@ -39,17 +37,18 @@ beforeAll(async () => {
   await addMember(wsA.workspaceId, userB.id, "member");
 });
 
-afterAll(async () => {
-  if (wsA) await destroyWorkspace(wsA);
-  if (wsB) await destroyWorkspace(wsB);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(wsA, wsB));
 
-/** Drive `loadWorkspace` directly (it's a plain (req,res,next) function). */
+/**
+ * Drive `loadWorkspace` directly. The `await` is load-bearing despite the types:
+ * `RequestHandler` returns `void`, but the implementation is async and calls
+ * `next` after a query.
+ */
 async function runLoadWorkspace(userId: string, workspaceId: string) {
   const req = { params: { workspaceId }, user: { id: userId } } as unknown as Request;
   let error: unknown;
+  // `RequestHandler` erases the returned promise, so the rule can't see it.
+  // eslint-disable-next-line @typescript-eslint/await-thenable
   await loadWorkspace(req, {} as Response, (e?: unknown) => {
     error = e;
   });

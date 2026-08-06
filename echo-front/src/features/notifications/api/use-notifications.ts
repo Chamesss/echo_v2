@@ -113,8 +113,8 @@ export function useMarkRead() {
         body: scope,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: notificationsKey });
-      qc.invalidateQueries({ queryKey: notificationsSummaryKey });
+      void qc.invalidateQueries({ queryKey: notificationsKey });
+      void qc.invalidateQueries({ queryKey: notificationsSummaryKey });
     },
   });
 }

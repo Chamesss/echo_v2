@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -43,7 +44,7 @@ export function ChangePasswordForm() {
         toast.success("Password updated. Other sessions have been signed out.");
         form.reset();
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

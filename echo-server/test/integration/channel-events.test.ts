@@ -1,25 +1,21 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { hub } from "../../src/infrastructure/realtime/hub.js";
 import {
-  addChannelMember,
   createChannel,
   deleteChannel,
   joinChannel,
-  leaveChannel,
-  removeChannelMember,
   updateChannel,
-  type ChannelActor,
 } from "../../src/modules/channels/channels.service.js";
 import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
+import type { ChannelActor } from "../../src/modules/channels/channels.gates.js";
+import { addChannelMember, leaveChannel, removeChannelMember } from "../../src/modules/channels/channels.members.js";
 
 /**
  * Channel-lifecycle mutations must announce themselves on the realtime bus so
@@ -44,11 +40,7 @@ beforeAll(async () => {
 
 afterEach(() => vi.restoreAllMocks());
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 describe("channel lifecycle events on the realtime bus", () => {
   it("publishes channel.created when a channel is created", async () => {

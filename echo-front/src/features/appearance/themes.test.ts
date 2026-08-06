@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ALIAS_THEME_IDS, THEMES } from "./themes";
-import { THEME_IDS, type ThemeId } from "./schema";
+import { THEME_IDS } from "./schema";
 import {
   contrastBetween,
   contrastRatio,
@@ -114,7 +114,7 @@ function parseDerivedRule(dark: boolean): Record<string, string> {
 /** Absolute themes only — alias themes delegate to the mode layer. */
 const absoluteThemeIds = THEME_IDS.filter(
   (id) => !ALIAS_THEME_IDS.includes(id),
-) as ThemeId[];
+);
 
 describe("theme registry ↔ CSS parity", () => {
   it("registers exactly the ids in THEME_IDS", () => {

@@ -31,7 +31,9 @@ const { listMessages, sendMessage } = await import(
 
 type Env = Awaited<ReturnType<typeof setupLoadEnv>>;
 let env: Env;
-let proxy: InstanceType<typeof ChaosProxy>;
+// Same reason as connection-loss.test.ts: destructured dynamic import, private
+// constructor — so the instance type comes from the factory.
+let proxy: Awaited<ReturnType<typeof ChaosProxy.start>>;
 const clients: InstanceType<typeof WsTestClient>[] = [];
 
 const SOAK_SECONDS = envInt("LOAD_SOAK_SECONDS", 45);

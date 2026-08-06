@@ -1,16 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import { hub } from "../../src/infrastructure/realtime/hub.js";
 import {
-  assertChannelAccess,
   getChannel,
   listChannels,
 } from "../../src/modules/channels/channels.service.js";
 import { listDirectMessages, openOrCreateDm } from "../../src/modules/channels/dm.service.js";
 import {
-  drainAwarenessFanOut,
   listMessages,
   sendMessage,
 } from "../../src/modules/channels/messages.service.js";
@@ -18,10 +14,12 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
+import { drainAwarenessFanOut } from "../../src/modules/channels/messages.awareness.js";
+import { assertChannelAccess } from "../../src/modules/channels/channels.gates.js";
 
 let a: TestUser;
 let b: TestUser;
@@ -37,11 +35,7 @@ beforeAll(async () => {
   await addMember(ws.workspaceId, c.id, "member");
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 afterEach(() => vi.restoreAllMocks());
 

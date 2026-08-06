@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Upload } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,7 @@ export function AvatarUploader() {
         toast.success("Profile picture updated");
         await refetch();
       },
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 

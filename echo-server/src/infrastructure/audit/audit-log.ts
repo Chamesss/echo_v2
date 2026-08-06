@@ -50,7 +50,12 @@ export type WorkspaceEventName = (typeof WorkspaceEventName)[keyof typeof Worksp
 
 export interface AuditEventInput {
   userId?: string | null;
-  event: AuthEventName | string;
+  /**
+   * A known `AuthEventName`, or any other string. `AuthEventName | string` (which
+   * this was) collapses to plain `string`, advertising a constraint it never
+   * enforced and losing the completions. `string & {}` keeps both.
+   */
+  event: AuthEventName | (string & {});
   ipAddress?: string | null;
   userAgent?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -87,7 +92,8 @@ export async function logAuthEvent(input: AuditEventInput): Promise<void> {
 export interface WorkspaceAuditInput {
   userId: string;
   workspaceId: string;
-  event: WorkspaceEventName | string;
+  /** Same shape as `AuditEventInput.event` — see the note there. */
+  event: WorkspaceEventName | (string & {});
   metadata?: Record<string, unknown> | null;
   ipAddress?: string | null;
   userAgent?: string | null;

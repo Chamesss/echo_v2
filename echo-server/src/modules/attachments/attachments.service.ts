@@ -3,7 +3,7 @@ import { withTenantSchema } from "../../infrastructure/database/tenant/client.js
 import { s3Service } from "../../infrastructure/storage/s3-service.js";
 import { BadRequestError } from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
-import { assertChannelMember } from "../channels/channels.service.js";
+import { assertChannelMember } from "../channels/channels.gates.js";
 import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   validateUpload,

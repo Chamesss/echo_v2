@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { decodeFrame } from "../../src/infrastructure/realtime/frame.js";
 
 /**
  * Recovery from connection loss, staged at the TCP layer.
@@ -41,7 +42,11 @@ const { WsTestClient, waitFor } = await import("../helpers/ws-client.js");
 const ORIGIN = "http://localhost:3000"; // matches CORS_ORIGINS in vitest.config.ts
 
 let server: Server;
-let proxy: InstanceType<typeof ChaosProxy>;
+// Derived from the factory, which is the only way to name this instance type
+// here: `ChaosProxy` arrives via a destructured dynamic import, so it's a value
+// binding with no type side, and its constructor is private anyway — both
+// `ChaosProxy` and `InstanceType<typeof ChaosProxy>` fail for those two reasons.
+let proxy: Awaited<ReturnType<typeof ChaosProxy.start>>;
 let author: Awaited<ReturnType<typeof createUser>>;
 let reader: Awaited<ReturnType<typeof createUser>>;
 let ws: Awaited<ReturnType<typeof createWorkspace>>;
@@ -140,7 +145,7 @@ describe("half-open connection", () => {
     );
     const received: unknown[] = [];
     let closed = false;
-    naive.on("message", (d) => received.push(JSON.parse(d.toString())));
+    naive.on("message", (d) => received.push(JSON.parse(decodeFrame(d))));
     naive.on("close", () => {
       closed = true;
     });

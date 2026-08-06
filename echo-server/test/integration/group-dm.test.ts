@@ -1,11 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool } from "../../src/infrastructure/database/pool.js";
-import { backplane } from "../../src/infrastructure/realtime/backplane.js";
 import {
-  addChannelMember,
   deleteChannel,
-  leaveChannel,
-  removeChannelMember,
   updateChannel,
 } from "../../src/modules/channels/channels.service.js";
 import { listDirectMessages, openOrCreateDm } from "../../src/modules/channels/dm.service.js";
@@ -13,11 +8,12 @@ import {
   addMember,
   createUser,
   createWorkspace,
-  destroyWorkspace,
   makeChannel,
   type TestUser,
   type TestWorkspace,
 } from "../factories.js";
+import { teardown } from "../helpers/teardown.js";
+import { addChannelMember, leaveChannel, removeChannelMember } from "../../src/modules/channels/channels.members.js";
 
 /**
  * The rules that separate a conversation from a channel.
@@ -70,14 +66,9 @@ beforeAll(async () => {
   sharedDirect = await openOrCreateDm(ws.workspaceId, a.id, [b.id]);
 });
 
-afterAll(async () => {
-  if (ws) await destroyWorkspace(ws);
-  await backplane.close();
-  await pool.end();
-});
+afterAll(() => teardown(ws));
 
 const newGroup = () => openOrCreateDm(ws.workspaceId, a.id, [b.id, c.id]);
-const newDirect = () => openOrCreateDm(ws.workspaceId, a.id, [b.id]);
 
 describe("a 1:1 is fixed for life", () => {
   it("refuses a third participant", async () => {

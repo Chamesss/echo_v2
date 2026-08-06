@@ -37,7 +37,7 @@ function isPgError(err: unknown): err is PgErrorShape {
     typeof err === "object" &&
     err !== null &&
     "code" in err &&
-    typeof (err as { code: unknown }).code === "string"
+    typeof (err).code === "string"
   );
 }
 

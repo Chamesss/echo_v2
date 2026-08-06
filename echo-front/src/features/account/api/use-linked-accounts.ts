@@ -71,7 +71,7 @@ export function useUnlinkAccount() {
       return result.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: linkedAccountsKey });
+      void queryClient.invalidateQueries({ queryKey: linkedAccountsKey });
     },
   });
 }

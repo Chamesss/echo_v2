@@ -10,6 +10,9 @@ import { cn } from "@/lib/utils";
 describe("cn", () => {
   it("merges class names and resolves Tailwind conflicts", () => {
     expect(cn("px-2", "px-4")).toBe("px-4");
+    // The constant IS the assertion: `cn` must drop a falsy conditional class,
+    // which is how every caller writes `cond && "class"`.
+    // eslint-disable-next-line no-constant-binary-expression
     expect(cn("text-sm", false && "hidden", "font-bold")).toBe("text-sm font-bold");
   });
 });

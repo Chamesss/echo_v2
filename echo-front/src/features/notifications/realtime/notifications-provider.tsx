@@ -154,8 +154,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // change doesn't tear down + reopen the socket — only its value is read inside
   // the event handler.
   const activeChannelRef = useRef<string | null>(null);
-  activeChannelRef.current =
+  const activeChannelId =
     location.pathname.match(/\/dashboard\/[^/]+\/channels\/([^/]+)/)?.[1] ?? null;
+  useEffect(() => {
+    activeChannelRef.current = activeChannelId;
+  }, [activeChannelId]);
 
   // Idempotency guard: skip any event we've already applied. Defends against
   // at-least-once delivery / reconnect replays so a count never bumps twice.
@@ -261,33 +264,33 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         // only on reconnect, so the workspace switcher kept showing a count for a
         // conversation I can't open — and an open tray kept listing entries whose
         // "View" now dead-ends.
-        qc.invalidateQueries({ queryKey: notificationsKey });
-        qc.invalidateQueries({ queryKey: notificationsSummaryKey });
+        void qc.invalidateQueries({ queryKey: notificationsKey });
+        void qc.invalidateQueries({ queryKey: notificationsSummaryKey });
         if (
           window.location.pathname ===
           paths.workspaceChannel(event.workspaceId, event.channelId)
         ) {
           toast.info("You no longer have access to this conversation");
-          navigate(paths.workspace(event.workspaceId), { replace: true });
+          void navigate(paths.workspace(event.workspaceId), { replace: true });
         }
         return;
       }
 
       if (event.kind === "dm.created") {
         // A DM/group was opened with me → it appears in my sidebar.
-        qc.invalidateQueries({ queryKey: dmsKey(event.workspaceId) });
+        void qc.invalidateQueries({ queryKey: dmsKey(event.workspaceId) });
         return;
       }
 
       if (event.kind === "workspace.deleted") {
         // A workspace I belonged to was deleted → drop it everywhere; if I'm
         // inside it, leave for the dashboard.
-        qc.invalidateQueries({ queryKey: myWorkspacesKey });
-        qc.invalidateQueries({ queryKey: notificationsSummaryKey });
+        void qc.invalidateQueries({ queryKey: myWorkspacesKey });
+        void qc.invalidateQueries({ queryKey: notificationsSummaryKey });
         if (window.location.pathname.startsWith(`/dashboard/${event.workspaceId}`)) {
           clearLastWorkspaceId();
           toast.info("This workspace was deleted");
-          navigate(paths.home, { replace: true });
+          void navigate(paths.home, { replace: true });
         }
         return;
       }
@@ -297,14 +300,14 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       setStatus(status);
       // On (re)connect, re-seed from the source of truth to heal missed events.
       if (status === "open" && reconnected) {
-        qc.invalidateQueries({ queryKey: notificationsSummaryKey });
-        qc.invalidateQueries({ queryKey: notificationsKey });
+        void qc.invalidateQueries({ queryKey: notificationsSummaryKey });
+        void qc.invalidateQueries({ queryKey: notificationsKey });
         // The conversation lists too: structural events (`dm.created`,
         // `channel.added`/`removed`) are single-shot, so anything that happened
         // while we were down is lost unless we reconcile here. Only ACTIVE
         // queries refetch, so in practice this is one request for the workspace
         // the user is actually looking at.
-        qc.invalidateQueries({
+        void qc.invalidateQueries({
           predicate: (q) =>
             q.queryKey[0] === "ws" &&
             (q.queryKey[2] === "dms" || q.queryKey[2] === "channels"),

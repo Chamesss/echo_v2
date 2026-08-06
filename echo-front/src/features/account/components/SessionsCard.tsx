@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Laptop, LogOut, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/auth-client";
@@ -23,14 +24,14 @@ export function SessionsCard() {
   const handleRevokeOne = (token: string) => {
     revokeOne.mutate(token, {
       onSuccess: () => toast.success("Session revoked"),
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 
   const handleRevokeOthers = () => {
     revokeOthers.mutate(undefined, {
       onSuccess: () => toast.success("Signed out from all other devices"),
-      onError: (err) => toast.error(err.message),
+      onError: toastError,
     });
   };
 
