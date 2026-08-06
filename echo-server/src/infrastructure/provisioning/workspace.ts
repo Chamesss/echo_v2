@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import { controlDb } from '../database/control/client.js';
 import { workspaces, memberships, tenantCatalog } from '../database/control/schema.js';
+import { workspaceSchemaName } from '../../shared/slug/index.js';
 
 /**
  * Current version of the tenant schema produced by `init.sql`.
@@ -45,14 +46,12 @@ async function loadInitSql(): Promise<string> {
 const SLUG_PATTERN = /^[a-z][a-z0-9-]{2,40}$/;
 
 /**
- * Maps a workspace slug to its Postgres schema name (`tenant_<slug>`).
+ * Validates a user-supplied slug, then maps it to its schema name.
  *
- * Called by `provisionWorkspace`. Slugs are user-supplied so we validate
- * strictly: lowercase, starts with a letter, ASCII only — both to reject
- * unsafe identifiers and to keep schema names predictable for ops.
- *
- * Hyphens in slugs become underscores in schema names because hyphens require
- * quoting in every SQL reference, which is brittle.
+ * The validation is the point of keeping this wrapper: slugs reach here from
+ * request bodies, and an unchecked one would be interpolated into `CREATE
+ * SCHEMA`. The name itself comes from `workspaceSchemaName` so the
+ * `tenant_<slug>` convention lives in exactly one place.
  */
 function buildSchemaName(slug: string): string {
   if (!SLUG_PATTERN.test(slug)) {
@@ -60,7 +59,7 @@ function buildSchemaName(slug: string): string {
       `Invalid slug "${slug}". Must match ${SLUG_PATTERN} (lowercase, starts with a letter).`,
     );
   }
-  return `tenant_${slug.replace(/-/g, '_')}`;
+  return workspaceSchemaName(slug);
 }
 
 export interface ProvisionWorkspaceInput {

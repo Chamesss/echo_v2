@@ -11,4 +11,3 @@ import * as schema from './schema.js';
  * `memberships` / `tenant_catalog` goes through this client.
  */
 export const controlDb = drizzle(pool, { schema });
-export type ControlDb = typeof controlDb;

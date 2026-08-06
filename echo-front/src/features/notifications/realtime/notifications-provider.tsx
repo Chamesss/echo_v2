@@ -65,18 +65,12 @@ interface ToastGroup {
 let toastGeneration = 0;
 
 /**
- * Show a toast for a message, folding it into the conversation's existing one.
+ * Show a toast for a message, folding it into the conversation's existing one —
+ * a toast per message meant a busy group threw twenty pop-ups. Sonner treats a
+ * repeated `id` as an update, so one toast rewrites itself in place.
  *
- * A toast per message meant an eight-person group trading twenty messages threw
- * twenty pop-ups, each shoving the last off screen — the busier a conversation
- * got, the less usable its notifications were. Sonner treats a repeated `id` as
- * an update, so one toast per conversation can stay put and rewrite itself:
- * "Alice · New message in Project X" becomes "Project X · Alice and 2 others ·
- * 6 new".
- *
- * The group expires after `TOAST_COALESCE_MS` of quiet so a message arriving
- * much later reads as new rather than continuing a stale count. Wording comes
- * from the shared registry, so this and the notification tray can't drift.
+ * The group expires after `TOAST_COALESCE_MS` of quiet, so a much later message
+ * reads as new instead of continuing a stale count.
  */
 function showConversationToast(
   groups: Map<string, ToastGroup>,
@@ -173,19 +167,15 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     if (!userId) return;
 
     /**
-     * An event named a conversation our cached lists don't contain, so those
-     * lists are stale — refetch them.
+     * An event named a conversation the cached lists don't contain, so they're
+     * stale — refetch.
      *
-     * `dm.created` / `channel.added` are the intended way a new conversation
-     * appears, but they're single-shot and best-effort (NOTIFY is at-most-once,
-     * and the socket may be reconnecting or the server cold-starting), and
-     * `bumpChannelUnread` is a SILENT no-op for an id it can't find. Without
-     * this, one missed structural event meant the conversation stayed invisible
-     * until a full page reload: the bump landed on nothing, the toast's "View"
-     * dead-ended on "Channel not found", and nothing else refetches these lists.
+     * `dm.created` / `channel.added` are single-shot and best-effort, and
+     * `bumpChannelUnread` is a SILENT no-op for an unknown id. So one missed
+     * event left the conversation invisible until a reload, with the toast's
+     * "View" dead-ending on "Channel not found".
      *
-     * Only when at least one list is already cached: for a workspace the user
-     * has never opened there's nothing to heal, and the mount fetch gets it.
+     * Only when a list is already cached — otherwise the mount fetch gets it.
      */
     const healUnknownConversation = (workspaceId: string, channelId: string): void => {
       const channels = qc.getQueryData<ChannelDTO[]>(channelsKey(workspaceId));

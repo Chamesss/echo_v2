@@ -6,18 +6,12 @@ import {
 } from "./app-error.js";
 import { ErrorCode } from "./error-codes.js";
 
-/**
- * Postgres SQLSTATE class codes we care about.
- *
- * Full list: https://www.postgresql.org/docs/current/errcodes-appendix.html
- * Add cases here as new constraint types surface in services.
- */
+/** https://www.postgresql.org/docs/current/errcodes-appendix.html */
 const PgErrorCode = {
   UniqueViolation: "23505",
   ForeignKeyViolation: "23503",
   CheckViolation: "23514",
   NotNullViolation: "23502",
-  // Connection-class errors — surface as 503 so clients/proxies can retry
   ConnectionException: "08000",
   ConnectionDoesNotExist: "08003",
   ConnectionFailure: "08006",
@@ -32,58 +26,60 @@ interface PgErrorShape {
   column?: string;
 }
 
-function isPgError(err: unknown): err is PgErrorShape {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    typeof (err).code === "string"
-  );
+function hasPgShape(err: unknown): err is PgErrorShape {
+  return typeof err === "object" && err !== null && "code" in err && typeof err.code === "string";
 }
 
 /**
- * Translates a low-level driver error into a typed `AppError`.
+ * Find the driver error, unwrapping whatever threw it.
  *
- * Called by `errorHandler` as the first pass when an unknown error reaches
- * the middleware. Services CAN catch specific Postgres errors inline when
- * they want a feature-specific message (see `workspaces.service.ts` for
- * the `slug_taken` override), but that's optional — if a service lets a
- * `23505` bubble, this translator gives a generic `409 db_unique_violation`
- * with the constraint name embedded so the client can still react.
+ * Drizzle wraps every failure in a `DrizzleQueryError` that carries no `code` of
+ * its own — the SQLSTATE sits on `.cause`. Checking only the top-level error
+ * therefore matched nothing on any query issued through drizzle, which is all of
+ * the control-schema ones.
+ */
+function findPgError(err: unknown): PgErrorShape | null {
+  for (let cur = err, depth = 0; cur != null && depth < 5; depth++) {
+    if (hasPgShape(cur)) return cur;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/** SQLSTATE 23505. Lets a service special-case a collision without re-deriving it. */
+export function isUniqueViolation(err: unknown): boolean {
+  return findPgError(err)?.code === PgErrorCode.UniqueViolation;
+}
+
+/**
+ * Translates a driver error into a typed `AppError`, or `null` if unrecognised
+ * so the caller can fall through.
  *
- * Returns `null` when the error isn't a recognised Postgres error so the
- * caller can fall through to its next strategy.
+ * Messages are deliberately generic: `err.constraint` and `err.detail` name
+ * internal schema objects and echo the offending row values
+ * (`Key (slug)=(admin) already exists`), so they are logged by `errorHandler`
+ * rather than returned. The STATUS and `ErrorCode` are the useful part — a
+ * unique violation is a 409, not a 500.
  */
 export function translateDbError(err: unknown): AppError | null {
-  if (!isPgError(err)) return null;
+  const pg = findPgError(err);
+  if (!pg) return null;
 
-  const detail = err.detail ? ` (${err.detail})` : "";
-  const constraint = err.constraint ? ` "${err.constraint}"` : "";
-
-  switch (err.code) {
+  switch (pg.code) {
     case PgErrorCode.UniqueViolation:
-      return new ConflictError(
-        `Duplicate value violates unique constraint${constraint}${detail}`,
-        ErrorCode.DbUniqueViolation,
-      );
+      return new ConflictError("That value is already taken", ErrorCode.DbUniqueViolation);
 
     case PgErrorCode.ForeignKeyViolation:
       return new BadRequestError(
-        `Referenced resource does not exist${constraint}${detail}`,
+        "Referenced resource does not exist",
         ErrorCode.DbForeignKeyViolation,
       );
 
     case PgErrorCode.CheckViolation:
-      return new BadRequestError(
-        `Value violates check constraint${constraint}`,
-        ErrorCode.DbCheckViolation,
-      );
+      return new BadRequestError("That value isn't allowed", ErrorCode.DbCheckViolation);
 
     case PgErrorCode.NotNullViolation:
-      return new BadRequestError(
-        `Missing required value${err.column ? ` for column "${err.column}"` : ""}`,
-        ErrorCode.DbNotNullViolation,
-      );
+      return new BadRequestError("A required value is missing", ErrorCode.DbNotNullViolation);
 
     case PgErrorCode.ConnectionException:
     case PgErrorCode.ConnectionDoesNotExist:

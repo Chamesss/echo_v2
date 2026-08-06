@@ -36,29 +36,17 @@ export const UNAUTHORIZED_RETRY_MS = 30_000;
 const MAX_BACKOFF_MS = 30_000;
 
 /**
- * A WebSocket that keeps itself connected.
+ * A WebSocket that keeps itself connected. Shared by `WorkspaceRealtime` and
+ * `UserRealtime`; subclasses supply a URL and any work to redo on (re)open.
  *
- * Shared by `WorkspaceRealtime` (`/ws`) and `UserRealtime` (`/ws/user`), which
- * were previously line-for-line duplicates of this lifecycle. Subclasses supply
- * a URL and, optionally, work to redo on every (re)open.
+ * Two things the browser won't do:
  *
- * Beyond reconnect-with-backoff it owns two things the browser will not do for
- * you:
- *
- * 1. **Liveness.** The browser WebSocket API does not surface protocol-level
- *    ping/pong to JavaScript, so the server's heartbeat is invisible here: a
- *    half-open socket (NAT rebind, cell handoff, sleep/wake) stays `OPEN`
- *    forever, `onclose` never fires, and nothing reconnects or catches up. We
- *    therefore run an application-level heartbeat against the server's
- *    `{t:"ping"}` → `{t:"pong"}` handler and force a reconnect on silence.
- *
- * 2. **Wake triggers.** Timers are throttled hard in background tabs (~1/min in
- *    Chrome, worse after 5 minutes), so a pending backoff can be delayed far past
- *    its nominal delay. `visibilitychange` and `online` short-circuit that.
- *
- * Reconnects flow through the normal `onclose` → `scheduleReconnect` → `onopen`
- * path, so the `reconnected` flag on the status listener still drives the
- * existing catch-up in `useChannelStream`. Nothing downstream needs to change.
+ * 1. **Liveness.** Protocol ping/pong isn't surfaced to JS, so a half-open socket
+ *    (NAT rebind, sleep/wake) stays `OPEN` forever and `onclose` never fires.
+ *    Hence an application-level heartbeat, forcing a reconnect on silence.
+ * 2. **Wake triggers.** Background tabs throttle timers to ~1/min, delaying a
+ *    pending backoff well past its delay; `visibilitychange` and `online`
+ *    short-circuit it.
  */
 export abstract class ReconnectingSocket<TClientFrame, TEvent> {
   private ws: WebSocket | null = null;

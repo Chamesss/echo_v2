@@ -1,25 +1,12 @@
 /**
  * Control-plane Drizzle table definitions.
  *
- * Three groups live here:
+ * The Better Auth tables (`users`, `sessions`, `accounts`, `verifications`,
+ * `twoFactors`) are owned by the library — a field mismatch causes SILENT auth
+ * failures, so don't reshape them casually. Our own tables use `text` for user
+ * ids because Better Auth generates strings, not uuids.
  *
- *  1. Better Auth core tables (`users`, `sessions`, `accounts`, `verifications`).
- *     Owned by Better Auth — field names and types match what the library
- *     expects so its Drizzle adapter (configured in `infrastructure/auth/auth.ts`)
- *     can read/write them. Don't change these casually; mismatches cause silent
- *     auth failures.
- *
- *  2. Better Auth plugin tables (`twoFactors`). Required by the `twoFactor`
- *     plugin enabled in `auth.ts`. The mapping is registered with the adapter
- *     under the key the plugin uses internally (`twoFactor`).
- *
- *  3. Application tables (`workspaces`, `memberships`, `tenantCatalog`,
- *     `authEvents`). Owned by us. `ownerId` and `userId` are `text` because
- *     they FK to Better Auth's `users.id`, which is a generated string.
- *
- * Changes here are managed by drizzle-kit:
- *   `npm run db:generate`  — produces a SQL migration in ./drizzle/control
- *   `npm run db:migrate`   — applies pending migrations
+ * Changes go through `db:generate` then `db:migrate`.
  */
 import {
   pgTable,
@@ -314,19 +301,13 @@ export const notificationSettings = pgTable(
 );
 
 /**
- * Per-user UI preferences (appearance mode, sidebar theme, density…).
+ * Per-user UI preferences. User-global, not per-workspace, so keyed by `userId`
+ * alone; a missing row means all defaults.
  *
- * User-global, NOT per-workspace — the choice follows the person across every
- * workspace and device, which is why this lives in the control plane keyed by
- * `userId` alone. A missing row means "all defaults", the same convention as
- * `notificationSettings` above; the client never has to seed anything.
- *
- * The payload is a single `jsonb` blob rather than a column per preference so
- * adding a preference is a schema change in `preferences.dto.ts` and nothing
- * else — no migration, no deploy ordering to think about. The shape is owned
- * and versioned by that zod schema; see `preferences.service.ts` for the
- * lenient-read / partial-merge-write rules that keep mixed client versions
- * from clobbering each other during a rolling deploy.
+ * One `jsonb` blob rather than a column each, so adding a preference is a change
+ * in `preferences.dto.ts` and no migration. See `preferences.service.ts` for the
+ * lenient-read / merge-write rules that stop mixed client versions clobbering
+ * each other mid-deploy.
  */
 export const userPreferences = pgTable("user_preferences", {
   userId: text("user_id")
@@ -341,20 +322,6 @@ export const userPreferences = pgTable("user_preferences", {
 // ─── Inferred types ───────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
-export type NewUser = typeof users.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
-export type NewWorkspace = typeof workspaces.$inferInsert;
 export type Membership = typeof memberships.$inferSelect;
-export type NewMembership = typeof memberships.$inferInsert;
-export type TenantCatalogEntry = typeof tenantCatalog.$inferSelect;
-export type NewTenantCatalogEntry = typeof tenantCatalog.$inferInsert;
-export type AuthEvent = typeof authEvents.$inferSelect;
-export type NewAuthEvent = typeof authEvents.$inferInsert;
-export type InviteToken = typeof inviteTokens.$inferSelect;
-export type NewInviteToken = typeof inviteTokens.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
-export type NewNotification = typeof notifications.$inferInsert;
-export type NotificationSetting = typeof notificationSettings.$inferSelect;
-export type NewNotificationSetting = typeof notificationSettings.$inferInsert;
-export type UserPreference = typeof userPreferences.$inferSelect;
-export type NewUserPreference = typeof userPreferences.$inferInsert;

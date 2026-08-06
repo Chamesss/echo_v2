@@ -128,37 +128,18 @@ export type ChannelEvent =
     };
 
 /**
- * A workspace-scoped event — roster + channel-lifecycle changes that aren't tied
- * to one OPEN conversation and so fan out to EVERY socket in the workspace, not
- * just channel subscribers.
+ * A workspace-scoped event — roster and channel-lifecycle changes that fan out to
+ * every socket in the workspace, not just channel subscribers.
  *
- * Unlike message events these carry no `updatedSeq`: there's no per-channel clock
- * to reconcile, so clients react by re-syncing the affected REST queries (roster,
- * directory, channel list, message visibility) rather than by gap detection. The
- * DB stays the source of truth — these events only say "something changed, re-read
- * it." Channel-lifecycle events carry only the channel id for that reason: the
- * authoritative row comes from the (visibility-scoped) channels endpoint, so
- * broadcasting a private channel's id workspace-wide is harmless — a non-member's
- * refetch won't include it.
- *   - `member.added`        — joined via add-by-email or accepted invite; their
- *                             previously-withheld messages become readable again.
- *   - `member.removed`      — left or was removed; their messages get withheld.
- *   - `member.role_changed` — role updated (admin ↔ member).
- *   - `channel.created`     — a new channel exists (public appears for everyone).
- *   - `channel.updated`     — name/topic/archived/member-set changed; re-read it.
- *   - `channel.deleted`     — channel removed; drop it (and leave it if open).
- *   - `channel.member_removed` — a specific user lost access to a channel. Unlike
- *                             `channel.removed` (user socket) this is
- *                             workspace-scoped, so EVERY instance sees it and can
- *                             revoke that user's live subscription locally. The
- *                             two sockets are separate connections that a load
- *                             balancer may place on different instances, so the
- *                             user-scoped event can't be used to fix
- *                             workspace-socket state. Carries no payload beyond
- *                             the ids — clients re-read as for `channel.updated`.
- *   - `workspace.updated`   — the workspace was renamed; re-read its name.
- *   - `directory.updated`   — a member changed their name/avatar; re-read the
- *                             directory (so author names/avatars refresh live).
+ * These carry no `updatedSeq`: there's no per-channel clock to reconcile, so
+ * clients re-read the affected REST queries rather than gap-detect. That's also
+ * why channel events carry only an id — the authoritative row comes from the
+ * visibility-scoped channels endpoint, so broadcasting a private channel's id
+ * workspace-wide is harmless.
+ *
+ * `channel.member_removed` is workspace-scoped rather than user-scoped on
+ * purpose: the two sockets are separate connections a load balancer may place on
+ * different instances, so a user-scoped event can't fix workspace-socket state.
  */
 export type WorkspaceEvent =
   | { kind: "member.added"; userId: string; role: "admin" | "member" }
@@ -234,21 +215,11 @@ export interface NotificationWire {
 
 /**
  * User-scoped events delivered over the user socket.
- *   - `unread.bump`        — a message landed in a channel/DM the user belongs to;
- *                            the client increments that conversation's unread (and
- *                            the workspace roll-up) unless it's the active channel.
- *   - `notification.created` — a new persisted notification (DM today) for the inbox.
  *
- * The rest are DUAL-ROUTE targeted structural events — delivered here (rather than
- * over the workspace socket) so the affected user reacts even when they aren't
- * connected to that workspace's socket (e.g. on the dashboard or in another
- * workspace). Each carries `workspaceId` because this socket is cross-workspace.
- *   - `workspace.deleted`  — a workspace you belonged to was deleted; drop it and
- *                            leave if you're inside it.
- *   - `channel.added`      — you were added to a (private) channel; it appears.
- *   - `channel.removed`    — you were removed from a channel; it disappears (and
- *                            you're bounced out if you're viewing it).
- *   - `dm.created`         — a DM/group was opened with you; it appears in your list.
+ * Beyond `unread.bump` and `notification.created`, the structural ones are
+ * DUAL-ROUTED here rather than over the workspace socket so the affected user
+ * reacts even when not connected to that workspace (on the dashboard, or in
+ * another one). Each carries `workspaceId` because this socket is cross-workspace.
  */
 export type UserEvent =
   | {

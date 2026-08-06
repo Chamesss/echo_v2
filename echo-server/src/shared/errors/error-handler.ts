@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { AppError } from './app-error.js';
+import { translateDbError } from './db-error.js';
 import { logger } from '../logger/logger.js';
 
 /**
@@ -28,6 +29,17 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
       error: { code: err.code, message: err.message },
+    });
+    return;
+  }
+
+  // A Postgres error that no service special-cased. The response carries only a
+  // status + code; the constraint name and offending values stay in the log.
+  const translated = translateDbError(err);
+  if (translated) {
+    logger.warn({ err: serializeError(err), requestId: req.id }, 'Database error');
+    res.status(translated.statusCode).json({
+      error: { code: translated.code, message: translated.message },
     });
     return;
   }

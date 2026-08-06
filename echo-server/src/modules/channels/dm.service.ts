@@ -7,19 +7,11 @@ import { ErrorCode } from "../../shared/errors/error-codes.js";
 import type { ChannelDTO } from "./channels.service.js";
 
 /**
- * Direct & group messages. Both are `channels` rows — type `direct` (exactly 2
- * people) or `group` (3+) — and the two are addressed differently on purpose:
- *
- * - A `direct` channel carries a canonical `dm_key` derived from the sorted
- *   participant pair, so "open a DM with X" is idempotent: the same two people
- *   always resolve to the same channel, and the `dm_key` unique index enforces
- *   that even under a race.
- * - A `group` has NO `dm_key`. Its membership can change and it can be renamed,
- *   so it isn't identified by who happened to be in it at creation — asking for
- *   a group always creates a new one. See `openOrCreateDm` below.
+ * Direct & group messages — both `channels` rows, type `direct` (2 people) or
+ * `group` (3+), addressed differently on purpose (see `openOrCreateDm`).
  *
  * Messaging/edit/catch-up reuse the channel engine unchanged; only open-or-create
- * + listing live here.
+ * and listing live here.
  */
 
 export interface DmParticipant {
@@ -129,18 +121,14 @@ async function buildDmDTO(
 /**
  * Open a 1:1, or create a group conversation.
  *
- * The two halves behave differently on purpose:
+ *   - **1:1** is idempotent on the pair. Its members can never change (adding a
+ *     third creates a group), so `dm_key` identifies it for good — and its unique
+ *     index holds even under a race.
+ *   - **Group** is unkeyed and always creates: membership is mutable and it can be
+ *     renamed, so a key would go stale the moment anyone joined or left. Two
+ *     groups with the same people is legitimate.
  *
- *   - **1:1** is idempotent on the participant pair. Its member set can never
- *     change (adding a third person creates a group instead), so `dm_key`
- *     identifies it for good and picking the same person twice always lands in
- *     the same conversation.
- *   - **Group** is not keyed and always creates. Its membership is mutable and
- *     it can be renamed, so it is its own entity rather than a function of who
- *     started in it — two separate groups with the same people is legitimate,
- *     and a key would go stale the moment anyone joined or left.
- *
- * All participants must be members of the workspace.
+ * All participants must be workspace members.
  */
 export async function openOrCreateDm(
   workspaceId: string,

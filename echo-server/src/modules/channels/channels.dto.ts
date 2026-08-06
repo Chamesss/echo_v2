@@ -50,10 +50,6 @@ export const openDmBody = z.object({
 });
 export type OpenDmBody = z.infer<typeof openDmBody>;
 
-export const channelParams = z.object({
-  workspaceId: z.string().uuid(),
-  channelId: z.string().uuid(),
-});
 
 export const sendMessageBody = z
   .object({
@@ -81,11 +77,6 @@ export const editMessageBody = z.object({
 });
 export type EditMessageBody = z.infer<typeof editMessageBody>;
 
-export const messageIdParams = z.object({
-  workspaceId: z.string().uuid(),
-  channelId: z.string().uuid(),
-  messageId: z.string().uuid(),
-});
 
 export const markReadBody = z.object({
   seq: z.number().int().nonnegative(),

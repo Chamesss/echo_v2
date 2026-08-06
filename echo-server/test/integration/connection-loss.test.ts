@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { decodeFrame } from "../../src/infrastructure/realtime/frame.js";
+import { closeServer, startRealtimeServer } from "../helpers/realtime-server.js";
 
 /**
  * Recovery from connection loss, staged at the TCP layer.
@@ -60,10 +60,9 @@ beforeAll(async () => {
   await addMember(ws.workspaceId, reader.id, "member");
   channelId = (await openOrCreateDm(ws.workspaceId, author.id, [reader.id])).id;
 
-  server = createServer();
-  attachRealtimeServer(server);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  proxy = await ChaosProxy.start((server.address() as AddressInfo).port);
+  const started = await startRealtimeServer(attachRealtimeServer);
+  server = started.server;
+  proxy = await ChaosProxy.start(started.port);
 
   session.current = { user: { id: reader.id } };
 });
@@ -76,7 +75,7 @@ afterEach(() => {
 
 afterAll(async () => {
   await proxy.close();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await closeServer(server);
   if (ws) await destroyWorkspace(ws);
   await backplane.close();
   await pool.end();

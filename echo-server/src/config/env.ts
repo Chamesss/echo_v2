@@ -2,19 +2,11 @@ import "dotenv/config";
 import { z } from "zod";
 
 /**
- * Environment variable schema & loader.
+ * Environment schema, parsed once at import time so a missing required variable
+ * crashes at startup rather than deep inside a request.
  *
- * Parsed once at import time. Importing `env` anywhere in the app gives you
- * typed, validated values — and a clear startup-time crash if a required
- * variable is missing, instead of a vague runtime failure deep in a request.
- *
- * Optional vars (Google OAuth, email, S3) are accepted as undefined. The
- * downstream consumers (`auth.ts`, `email-service.ts`, `s3-service.ts`)
- * check presence and degrade gracefully (no Google button, NoOp email
- * service, 501 on avatar upload).
- *
- * `AUTH_*` flags toggle Better Auth behavior without code changes — useful
- * for flipping invite-only mode or email verification per environment.
+ * Optional vars (OAuth, email, S3) may be undefined; their consumers check
+ * presence and degrade gracefully rather than failing to boot.
  */
 const schema = z.object({
   NODE_ENV: z

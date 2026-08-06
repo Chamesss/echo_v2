@@ -13,35 +13,20 @@ import type { NotificationWire } from "../../infrastructure/realtime/protocol.js
 /**
  * The notification inbox — the persistent half of the awareness layer.
  *
- * Lives in the control plane (not a tenant schema) so the cross-workspace inbox
- * is one query on `user_id`. `channelId`/`messageId` are bare references into the
- * workspace's tenant schema (no cross-schema FK); the inbox doesn't need to read
- * them, only to navigate there on click. Actor identity is joined live from
- * control `users`, so a renamed sender shows their current name.
+ * Lives in the control plane so the cross-workspace inbox is one query on
+ * `user_id`. `channelId`/`messageId` are bare refs into a tenant schema (no
+ * cross-schema FK) — the inbox only navigates there, never reads them.
  *
- * Every message creates a notification (`type: 'message'` for channels, `'dm'`
- * for direct messages) for each recipient who has notifications ENABLED for the
- * workspace. `important` + `'mention'` are reserved for the future tag system.
+ * LIFECYCLE — two defences, and neither can replace the other:
+ *   1. DELETE when access is revoked (`deleteChannelNotifications` /
+ *      `deleteWorkspaceNotificationsFor`, from the membership paths).
+ *   2. SCOPE the reads — `listNotifications` and `getSummary` join `memberships`,
+ *      so a workspace you left contributes nothing even if (1) never ran.
+ * (2) misses per-CHANNEL removal, which leaves you in the workspace. (1) is
+ * best-effort per call site, and the table already holds historical rows.
  *
- * LIFECYCLE. A notification outlives nothing on its own: `workspace_id` cascades,
- * but `channel_id`/`message_id` are bare ids by design, so losing access to a
- * conversation leaves its notifications behind — pointing at something the reader
- * can no longer open. Two independent defences, because neither covers the
- * other's cases:
- *
- *   1. DELETE at the moment access is revoked — `deleteChannelNotifications` /
- *      `deleteWorkspaceNotificationsFor`, called from the membership paths.
- *   2. SCOPE the reads — `listNotifications` and `getSummary`'s unseen count
- *      join `memberships`, so a workspace you no longer belong to contributes
- *      nothing even if step 1 never ran (a crash, or rows predating this code).
- *
- * (2) can't replace (1): removal from a single CHANNEL leaves you in the
- * workspace, so only the delete catches it. (1) can't replace (2): it's
- * best-effort at every call site, and the table already holds historical rows.
- *
- * NOTE (scale): this persists one row per recipient per message. Fine at MVP /
- * internal-tool scale; a busy large channel would want this trimmed (retention,
- * or deriving non-DM activity instead of persisting) before true enterprise load.
+ * Scale: one row per recipient per message. Fine at this size; a busy large
+ * channel would want retention before real load.
  */
 
 function toWire(row: {

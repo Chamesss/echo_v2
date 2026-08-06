@@ -17,16 +17,6 @@ export function useMembers(workspaceId: string) {
   });
 }
 
-/** Admin: add an existing user by email (instant). */
-export function useAddMember(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { email: string; role: Role }) =>
-      apiFetch<MemberDTO>(`/api/workspaces/${workspaceId}/members`, { method: "POST", body: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: membersKey(workspaceId) }),
-  });
-}
-
 /** Admin: change a member's role. */
 export function useChangeMemberRole(workspaceId: string) {
   const qc = useQueryClient();

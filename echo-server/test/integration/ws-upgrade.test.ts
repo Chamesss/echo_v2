@@ -1,8 +1,8 @@
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { decodeFrame } from "../../src/infrastructure/realtime/frame.js";
+import { closeServer, startRealtimeServer } from "../helpers/realtime-server.js";
 
 /**
  * The realtime handshake.
@@ -51,14 +51,11 @@ beforeAll(async () => {
   ws = await createWorkspace(user.id);
   await addMember(ws.workspaceId, user.id, "admin");
 
-  server = createServer();
-  attachRealtimeServer(server);
-  await new Promise<void>((resolve) => server.listen(0, resolve));
-  port = (server.address() as AddressInfo).port;
+  ({ server, port } = await startRealtimeServer(attachRealtimeServer));
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await closeServer(server);
   if (ws) await destroyWorkspace(ws);
   await backplane.close();
   await pool.end();

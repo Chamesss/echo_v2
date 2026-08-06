@@ -18,6 +18,7 @@ import {
   type ProvisionWorkspaceResult,
 } from "../../infrastructure/provisioning/workspace.js";
 import { ConflictError } from "../../shared/errors/app-error.js";
+import { isUniqueViolation } from "../../shared/errors/db-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import type { CreateWorkspaceBody } from "./workspaces.dto.js";
 
@@ -126,20 +127,3 @@ export async function deleteWorkspace(workspaceId: string): Promise<void> {
   );
 }
 
-/**
- * Narrow check for SQLSTATE 23505 (unique_violation).
- *
- * Used ONLY by `createWorkspace` to override the generic message the
- * database-error translator would produce. New callers should usually let
- * the translator do its job rather than copy this pattern — feature-specific
- * messages are worth the override only when the UI needs to react to the
- * exact failure mode (here: highlighting the slug field inline).
- */
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err).code === "23505"
-  );
-}

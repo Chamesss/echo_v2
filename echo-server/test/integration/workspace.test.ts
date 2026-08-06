@@ -8,7 +8,11 @@ import {
   tenantCatalog,
   workspaces,
 } from "../../src/infrastructure/database/control/schema.js";
-import { deleteWorkspace, renameWorkspace } from "../../src/modules/workspaces/workspaces.service.js";
+import {
+  createWorkspace as createWorkspaceService,
+  deleteWorkspace,
+  renameWorkspace,
+} from "../../src/modules/workspaces/workspaces.service.js";
 import { deleteWorkspaceController } from "../../src/modules/workspaces/workspaces.controller.js";
 import { addMemberByEmail } from "../../src/modules/members/members.service.js";
 import { getDirectory, invalidateDirectory } from "../../src/modules/members/directory.service.js";
@@ -134,5 +138,22 @@ describe("member directory", () => {
     await addMemberByEmail(dirWs.workspaceId, { email: u3.email, role: "member" });
     const d4 = await getDirectory(dirWs.workspaceId);
     expect(d4[u3.id]?.name).toBe(u3.name);
+  });
+});
+
+describe("duplicate slug", () => {
+  it("keeps the specific slug_taken code the create form branches on", async () => {
+    // Not the generic `db_unique_violation` the shared translator would give:
+    // CreateWorkspaceForm highlights the slug field inline on this exact code.
+    const owner = await createUser();
+    const slug = `t${Date.now().toString(36)}`;
+
+    const first = await createWorkspaceService(owner.id, { slug });
+    toCleanup.push({ ...first, slug, ownerId: owner.id });
+
+    await expect(createWorkspaceService(owner.id, { slug })).rejects.toMatchObject({
+      statusCode: 409,
+      code: "slug_taken",
+    });
   });
 });

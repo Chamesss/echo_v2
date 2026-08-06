@@ -1,28 +1,13 @@
 /**
- * The single event point for workspace-scoped realtime.
+ * The single event point for workspace-scoped realtime: events are defined here
+ * (`RealtimeEvents`) and dispatched here (`emitWorkspaceEvent` / `emitUserEvents`),
+ * so wire payloads can't drift across modules.
  *
- * Every workspace mutation that live clients must react to is DEFINED here (the
- * `RealtimeEvents` builder catalog) and DISPATCHED here (`emitWorkspaceEvent` /
- * `emitUserEvents`). Modules import these instead of hand-building `{ kind: … }`
- * literals and calling `hub.publish` directly, so the wire payloads can't drift
- * and there's one place to add an event or change a transport.
+ * `emitUserEvents` uses the always-on cross-workspace socket to DUAL-ROUTE
+ * targeted events, so a user reacts even when not connected to that workspace.
  *
- * Transports (see `protocol.ts` for the wire contract):
- *   - WORKSPACE socket  → `emitWorkspaceEvent` — fans out to every socket in the
- *     workspace (roster + channel-lifecycle changes).
- *   - USER socket       → `emitUserEvents` — the always-on, cross-workspace socket;
- *     used to DUAL-ROUTE targeted events to a specific user even when they aren't
- *     connected to that workspace's socket (e.g. on the dashboard). See the
- *     reserved actions below.
- *
- * All dispatch is BEST-EFFORT: the DB is the source of truth and clients self-heal
- * from REST on their next load/reconnect, so a publish failure is logged, never
- * thrown into the request path.
- *
- * Audit (the forensic trail) is a separate concern recorded via
- * `audit/audit-log.ts#logWorkspaceEvent` from the controllers, which hold the
- * request context (ip/user-agent). Its `WorkspaceEventName` enumeration is
- * re-exported here so all event names are reachable from one module.
+ * All dispatch is BEST-EFFORT — the DB is truth and clients self-heal from REST,
+ * so a publish failure is logged, never thrown into the request path.
  */
 
 import { hub } from "./hub.js";

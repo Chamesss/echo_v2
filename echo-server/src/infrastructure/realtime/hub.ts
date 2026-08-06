@@ -14,18 +14,13 @@ import {
 
 /**
  * In-process registry of live sockets and their channel subscriptions, plus the
- * glue to the cross-instance backplane.
+ * glue to the backplane.
  *
- * Each socket is workspace-scoped (set at the handshake) and subscribes to the
- * channels the user currently has open. The hub fans an event out to local
- * sockets subscribed to its channel; cross-instance delivery is handled by the
- * backplane: the first socket for a workspace makes this instance LISTEN, and
- * every NOTIFY for that workspace (including our own publishes — loopback) lands
- * in `deliverLocal`. That single path avoids double-sending.
+ * Delivery has ONE path: every NOTIFY — including this instance's own publishes,
+ * via loopback — lands in `deliverLocal`. That's what avoids double-sending.
  *
- * Authorization is NOT done here — the connection handler authorizes each
- * `subscribe` against channel membership before calling `subscribe()`. The hub
- * is pure plumbing so it stays trivially testable.
+ * Authorization is NOT done here; the connection handler checks membership before
+ * calling `subscribe`. The hub stays pure plumbing.
  */
 export interface SocketContext {
   userId: string;
@@ -255,17 +250,13 @@ export class RealtimeHub {
   }
 
   /**
-   * Drop one user's subscription to one channel.
+   * Drop one user's subscription to one channel — the narrower sibling of
+   * `evict`, since they remain in the workspace.
    *
-   * The narrower sibling of `evict`: they're still in the workspace, so the
-   * socket stays open — it just stops being a subscriber of that channel.
-   *
-   * Without this, a channel subscription outlived the membership that justified
-   * it. `subscribe` authorizes once and nothing re-checks, so the only thing
-   * that removed the subscription was the removed user's own client choosing to
-   * unsubscribe when it saw `channel.removed`. That works right up until a
-   * client doesn't comply, or until that event is dropped (NOTIFY is
-   * at-most-once) while the workspace socket stays up.
+   * Without this the subscription outlives the membership that justified it:
+   * `subscribe` authorizes once, so removal relied on the removed user's own
+   * client unsubscribing — which a modified client won't do, and which fails
+   * anyway if the event is dropped (NOTIFY is at-most-once).
    */
   private revokeChannel(workspaceId: string, userId: string, channelId: string): void {
     const entry = this.workspaces.get(workspaceId);
@@ -289,18 +280,13 @@ export class RealtimeHub {
   /**
    * Close a departed member's workspace sockets.
    *
-   * Authorization is otherwise checked only at the start of a socket's life —
-   * workspace membership at the handshake, channel access at `subscribe` — and
-   * nothing re-checks afterwards. So a removed member's socket stayed open and
-   * kept receiving the channels it had already joined, until they happened to
-   * reconnect. The client navigates itself out of the workspace on this event,
-   * but that is cosmetic: it's the victim's own browser choosing to leave, which
-   * a modified client simply wouldn't do.
+   * Authorization is otherwise only checked at the start of a socket's life, so a
+   * removed member kept receiving already-joined channels until they reconnected.
+   * The client navigating itself out is cosmetic — a modified one wouldn't.
    *
-   * This runs from `deliverLocal` — i.e. off the backplane — so it fires on
-   * EVERY instance holding one of that user's sockets, not just the one that
-   * served the removal request. `removeMember` and `leaveWorkspace` both emit
-   * `member.removed`, so both paths are covered by this one hook.
+   * Runs from `deliverLocal`, i.e. off the backplane, so it fires on EVERY
+   * instance holding one of that user's sockets, not just the one that served
+   * the removal.
    */
   private evict(workspaceId: string, userId: string): void {
     const entry = this.workspaces.get(workspaceId);

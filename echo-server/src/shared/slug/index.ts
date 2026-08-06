@@ -29,12 +29,10 @@ export function slugify(input: string, options: { maxLength?: number } = {}): st
 }
 
 /**
- * Reserved slugs that must never be assigned to user-created entities
- * (workspaces, future channels) because they'd collide with system routes
- * or have ambiguous meaning.
+ * Slugs that would collide with a system route or read ambiguously.
  *
- * Checked by `provisionWorkspace` before insert. Add to this set whenever
- * a new system route is added under a path that would shadow the slug.
+ * Enforced by `createWorkspaceBody` (workspaces.dto.ts). Add to this set
+ * whenever a new system route could be shadowed by a slug.
  */
 const RESERVED_SLUGS = new Set([
   "admin",
@@ -64,11 +62,8 @@ export function isReservedSlug(slug: string): boolean {
 }
 
 /**
- * Postgres schema identifier built from a workspace slug.
- *
- * Used by `provisionWorkspace` to derive the per-tenant schema name.
- * Hyphens become underscores so the identifier doesn't require quoting
- * in every SQL reference.
+ * Postgres schema identifier for a workspace slug, used by `provisionWorkspace`.
+ * Hyphens become underscores so the identifier never needs quoting.
  */
 export function workspaceSchemaName(slug: string): string {
   return `tenant_${slug.replace(/-/g, "_")}`;

@@ -2,10 +2,6 @@ import type { UserClientFrame, UserEvent } from "@server/infrastructure/realtime
 import { API_URL } from "@/config/env";
 import { ReconnectingSocket } from "./reconnecting-socket";
 
-import type { RealtimeStatus } from "./reconnecting-socket";
-
-export type UserRealtimeStatus = RealtimeStatus;
-
 /**
  * The always-on **awareness** socket (`/ws/user`), scoped to the signed-in user
  * rather than a workspace. Sibling of `WorkspaceRealtime`, but thinner: it has no

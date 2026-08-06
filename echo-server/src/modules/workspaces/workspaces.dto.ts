@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isReservedSlug } from '../../shared/slug/index.js';
 
 /**
  * Request/response shapes for the workspaces module.
@@ -20,7 +21,9 @@ export const createWorkspaceBody = z.object({
     .regex(
       /^[a-z][a-z0-9-]*$/,
       'Slug must be lowercase alphanumeric with hyphens, no spaces, starting with a letter',
-    ),
+    )
+    // Would shadow a system route (`/admin`, `/api`, `/settings`, …).
+    .refine((slug) => !isReservedSlug(slug), 'That slug is reserved'),
 });
 
 export type CreateWorkspaceBody = z.infer<typeof createWorkspaceBody>;
