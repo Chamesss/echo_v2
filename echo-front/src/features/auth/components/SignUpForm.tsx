@@ -43,6 +43,9 @@ export function SignUpForm() {
 
   // Coming from an invite → lock the email to the invited address so the account
   // is guaranteed to match, then land back on the accept page (which auto-joins).
+  // A public link has no address, so there's nothing to prefill and the field
+  // must stay editable — locking an empty one would make sign-up impossible.
+  const lockEmail = Boolean(invite?.email);
   useEffect(() => {
     if (invite?.email) form.setValue("email", invite.email);
   }, [invite?.email, form]);
@@ -101,12 +104,12 @@ export function SignUpForm() {
                     placeholder="you@example.com"
                     autoComplete="email"
                     // Locked to the invited address on an invite sign-up.
-                    readOnly={Boolean(inviteToken)}
-                    aria-readonly={Boolean(inviteToken)}
+                    readOnly={lockEmail}
+                    aria-readonly={lockEmail}
                     {...field}
                   />
                 </FormControl>
-                {inviteToken && (
+                {lockEmail && (
                   <p className="text-xs text-muted-foreground">
                     Using the email your invitation was sent to.
                   </p>

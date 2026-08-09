@@ -30,8 +30,12 @@ export default function AcceptInvitePage() {
   const accept = useAcceptInvite(token);
 
   const user = session?.user;
+  // A public (showcase) link is addressed to nobody, so there's nothing to match
+  // against and any signed-in account may accept it.
   const emailMatches =
-    !!user && !!invite && user.email.toLowerCase() === invite.email.toLowerCase();
+    !!user &&
+    !!invite &&
+    (invite.isPublic || user.email.toLowerCase() === invite.email?.toLowerCase());
 
   // Auto-accept once the invite is pending AND we're signed in with the matching
   // email. Fires exactly once (guarded ref survives StrictMode's double-effect).
@@ -98,8 +102,14 @@ export default function AcceptInvitePage() {
       <AuthLayout title={`Join ${invite.workspaceSlug}`} description={description}>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            This invitation was sent to{" "}
-            <span className="font-medium text-foreground">{invite.email}</span>.
+            {invite.isPublic ? (
+              "Anyone with this link can join — create an account to have a look around."
+            ) : (
+              <>
+                This invitation was sent to{" "}
+                <span className="font-medium text-foreground">{invite.email}</span>.
+              </>
+            )}
           </p>
           <Button asChild className="w-full">
             <Link to={withInvite(paths.register)}>Create account &amp; join</Link>

@@ -9,7 +9,12 @@ import {
   workspaces,
 } from "../../infrastructure/database/control/schema.js";
 import { emitWorkspaceEvent, RealtimeEvents } from "../../infrastructure/realtime/events.js";
-import { ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import { invalidateDirectory } from "./directory.service.js";
 
@@ -21,7 +26,20 @@ import { invalidateDirectory } from "./directory.service.js";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function hashToken(token: string): string {
+/**
+ * Sentinel `invite_tokens.email` marking the one-off PUBLIC showcase link:
+ * reusable, addressed to nobody, dated year 9999 so it never expires. It rides
+ * the email column instead of getting a table, which is only safe because it
+ * can't be minted through the normal flow — "*" fails `createInviteBody`'s
+ * `.email()` at the edge, and `createInvite` rejects it again below. Only
+ * `bun run db:seed-showcase` writes one.
+ *
+ * It never leaves the server: `getInviteByToken` maps it to `email: null` +
+ * `isPublic: true`, so no client compares against "*".
+ */
+export const PUBLIC_INVITE_EMAIL = "*";
+
+export function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
@@ -45,6 +63,13 @@ export async function createInvite(
   invitedBy: string,
   input: { email: string; role: "admin" | "member" },
 ): Promise<CreatedInvite> {
+  // Defense in depth beneath `createInviteBody`'s `.email()` check: the public
+  // sentinel must never be mintable through the ordinary admin invite flow,
+  // even by a caller that skipped the DTO.
+  if (input.email === PUBLIC_INVITE_EMAIL) {
+    throw new BadRequestError("That address is reserved", ErrorCode.BadRequest);
+  }
+
   // Reject if someone with this email is already a member.
   const [already] = await controlDb
     .select({ userId: memberships.userId })
@@ -90,7 +115,13 @@ export async function createInvite(
 }
 
 export interface InviteInfo {
-  email: string;
+  /**
+   * Who the invite is addressed to, or `null` for a public link (addressed to
+   * nobody). Never the raw sentinel — see `PUBLIC_INVITE_EMAIL`.
+   */
+  email: string | null;
+  /** A reusable, non-expiring link anyone may follow. */
+  isPublic: boolean;
   role: "admin" | "member";
   workspaceId: string;
   workspaceSlug: string;
@@ -117,14 +148,19 @@ export async function getInviteByToken(token: string): Promise<InviteInfo> {
     .limit(1);
   if (!row) throw new NotFoundError("Invitation not found", ErrorCode.InviteNotFound);
 
-  const status: InviteInfo["status"] = row.acceptedAt
-    ? "accepted"
-    : row.expiresAt.getTime() < Date.now()
-      ? "expired"
-      : "pending";
+  // A public link is never "accepted" — it's reusable, so `acceptedAt` stays
+  // null on it forever. Expiry still applies (its row is just dated year 9999).
+  const isPublic = row.email === PUBLIC_INVITE_EMAIL;
+  const status: InviteInfo["status"] =
+    !isPublic && row.acceptedAt
+      ? "accepted"
+      : row.expiresAt.getTime() < Date.now()
+        ? "expired"
+        : "pending";
 
   return {
-    email: row.email,
+    email: isPublic ? null : row.email,
+    isPublic,
     role: row.role,
     workspaceId: row.workspaceId,
     workspaceSlug: row.workspaceSlug,
@@ -179,13 +215,19 @@ export async function acceptInvite(
       .limit(1)
       .for("update");
     if (!row) throw new NotFoundError("Invitation not found", ErrorCode.InviteNotFound);
-    if (row.acceptedAt) {
+
+    // The single-use and email-match gates are what make an EMAIL invite
+    // private; the public link is addressed to nobody and meant to be reused, so
+    // both are skipped for it. Expiry still applies to both, so no path here
+    // ignores expiry entirely.
+    const isPublic = row.email === PUBLIC_INVITE_EMAIL;
+    if (!isPublic && row.acceptedAt) {
       throw new ConflictError("Invitation already used", ErrorCode.InviteAlreadyAccepted);
     }
     if (row.expiresAt.getTime() < Date.now()) {
       throw new ForbiddenError("Invitation has expired", ErrorCode.InviteExpired);
     }
-    if (row.email.toLowerCase() !== user.email.toLowerCase()) {
+    if (!isPublic && row.email.toLowerCase() !== user.email.toLowerCase()) {
       throw new ForbiddenError(
         "This invitation was sent to a different email address",
         ErrorCode.InviteEmailMismatch,
@@ -197,7 +239,14 @@ export async function acceptInvite(
       .values({ userId: user.id, workspaceId: row.workspaceId, role: row.role })
       .onConflictDoNothing();
 
-    await tx.update(inviteTokens).set({ acceptedAt: new Date() }).where(eq(inviteTokens.id, row.id));
+    // Burning the token is exactly what makes an email invite single-use, so the
+    // public link must never be marked accepted.
+    if (!isPublic) {
+      await tx
+        .update(inviteTokens)
+        .set({ acceptedAt: new Date() })
+        .where(eq(inviteTokens.id, row.id));
+    }
 
     invalidateDirectory(row.workspaceId);
     return { workspaceId: row.workspaceId, role: row.role };

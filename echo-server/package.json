@@ -13,6 +13,7 @@
     "db:drop": "bunx drizzle-kit drop",
     "db:make-admin": "bun run src/scripts/make-admin.ts",
     "db:add-member": "bun run src/scripts/add-member.ts",
+    "db:seed-showcase": "bun run src/scripts/seed-showcase.ts",
     "db:migrate-tenants": "bun run src/scripts/migrate-tenants.ts",
     "db:reset-conversations": "bun run src/scripts/reset-conversations.ts",
     "test": "vitest run",
