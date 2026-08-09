@@ -221,6 +221,51 @@ export function useDiscardFailed(workspaceId: string, channelId: string) {
   };
 }
 
+/**
+ * Apply an optimistic patch to one row and return its undo.
+ *
+ * Edits and deletes get the same `pending` dimming a send does, so a mutation
+ * that has left the browser but isn't confirmed yet looks the same whichever
+ * verb produced it.
+ *
+ * Two deliberate choices in the undo:
+ *  - It restores only THIS row, matched by id, rather than snapshotting the
+ *    whole list — so messages that arrived over the socket mid-flight aren't
+ *    rolled back along with it.
+ *  - It refuses to restore once `updatedSeq` has moved. A moved clock means the
+ *    server did apply the change and the socket already delivered it, so the
+ *    request failed in reporting the result, not in producing it; overwriting
+ *    the confirmed row with a stale snapshot would be the actual corruption.
+ *
+ * `failed` is deliberately NOT set on error. That flag renders "failed to send"
+ * with a Retry that replays a POST — the wrong verb for an edit or a delete.
+ * These surface their error through the caller's toast instead.
+ */
+function optimisticPatch(
+  qc: ReturnType<typeof useQueryClient>,
+  key: readonly unknown[],
+  messageId: string,
+  patch: (current: EchoMessage) => Partial<EchoMessage>,
+): () => void {
+  let snapshot: EchoMessage | undefined;
+  qc.setQueryData<EchoMessage[]>(key, (old) =>
+    (old ?? []).map((m) => {
+      if (m.id !== messageId) return m;
+      snapshot = m;
+      return { ...m, ...patch(m), pending: true };
+    }),
+  );
+  return () => {
+    const previous = snapshot;
+    if (!previous) return;
+    qc.setQueryData<EchoMessage[]>(key, (old) =>
+      (old ?? []).map((m) =>
+        m.id === messageId && m.updatedSeq === previous.updatedSeq ? previous : m,
+      ),
+    );
+  };
+}
+
 export function useEditMessage(workspaceId: string, channelId: string) {
   const qc = useQueryClient();
   const key = messagesKey(workspaceId, channelId);
@@ -241,6 +286,19 @@ export function useEditMessage(workspaceId: string, channelId: string) {
           attachments: input.attachments,
         },
       }),
+    onMutate: (input) => ({
+      rollback: optimisticPatch(qc, key, input.messageId, (current) => ({
+        body: input.body,
+        // Removals can be shown at once. Newly-uploaded files can't — they have
+        // no proxy URL until the server returns them — so they land on confirm.
+        attachments: input.keepAttachmentIds
+          ? (current.attachments ?? []).filter((a) =>
+              input.keepAttachmentIds!.includes(a.id),
+            )
+          : current.attachments,
+      })),
+    }),
+    onError: (_err, _input, context) => context?.rollback(),
     onSuccess: (message) =>
       qc.setQueryData<EchoMessage[]>(key, (old) => mergeMessage(old ?? [], message, false)),
   });
@@ -252,6 +310,16 @@ export function useDeleteMessage(workspaceId: string, channelId: string) {
   return useMutation({
     mutationFn: (messageId: string) =>
       apiFetch<MessageWire>(`${base(workspaceId, channelId)}/${messageId}`, { method: "DELETE" }),
+    // Tombstone it immediately — the same shape a confirmed delete leaves behind
+    // (`deleted`, empty body), just dimmed until the server agrees.
+    onMutate: (messageId) => ({
+      rollback: optimisticPatch(qc, key, messageId, () => ({
+        deleted: true,
+        body: "",
+        attachments: [],
+      })),
+    }),
+    onError: (_err, _messageId, context) => context?.rollback(),
     onSuccess: (message) =>
       qc.setQueryData<EchoMessage[]>(key, (old) => mergeMessage(old ?? [], message, false)),
   });

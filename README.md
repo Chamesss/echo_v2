@@ -211,10 +211,13 @@ The mechanism that makes that safe is a **per-channel change clock**:
 - `messages.seq` — the clock value at insert (immutable → stable ordering + history paging)
 - `messages.updated_seq` — the clock value at the last mutation (the reconciliation key)
 
-Every write happens inside a tenant transaction that first takes a row lock on the channel
-(`SELECT 1 FROM channels WHERE id = $1 FOR UPDATE`). That serializes concurrent writers for
-that channel, which makes the sequence **gapless** — and gaplessness is what lets a client
-detect that it missed something:
+Every write — send, edit and delete alike — happens inside a tenant transaction that
+_first_ takes an exclusive lock on that channel's row (`SELECT 1 FROM channels WHERE id = $1
+FOR UPDATE`, in the workspace's own tenant schema) and holds it until commit. The lock comes
+before any read the write depends on, so nothing it acted on can go stale underneath it.
+That serializes concurrent writers to one channel — writers to different channels never
+contend — which makes the sequence **gapless**, and gaplessness is what lets a client detect
+that it missed something:
 
 ```
 event.updatedSeq === lastClock + 1   → apply it, advance the clock
@@ -229,7 +232,9 @@ event.updatedSeq >  lastClock + 1    → GAP → fetch GET …/messages?since=<l
 
 Sends are also **idempotent**: the client generates a `clientId` UUID, and
 `(channel_id, client_id)` is unique. A retried send returns the existing row without burning
-a sequence number, so an optimistic UI and a flaky network can't produce duplicates.
+a sequence number, so an optimistic UI and a flaky network can't produce duplicates. Taking
+the channel lock before the `client_id` lookup is what makes that check reliable — the
+lookup and the sequence bump can't interleave with another writer.
 
 The broadcast is fired _after_ the transaction commits. If the broadcast fails entirely, the
 message is still durable and every client heals on its next catch-up or reconnect.

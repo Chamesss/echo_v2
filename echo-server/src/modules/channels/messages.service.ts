@@ -1,14 +1,21 @@
 import type { PoolClient } from "pg";
 import { withTenantSchema } from "../../infrastructure/database/tenant/client.js";
 import { hub } from "../../infrastructure/realtime/hub.js";
-import type { AttachmentWire, MessageWire } from "../../infrastructure/realtime/protocol.js";
+import type {
+  AttachmentWire,
+  MessageWire,
+} from "../../infrastructure/realtime/protocol.js";
 import {
   resolveAttachmentsForSend,
   type ResolvedAttachment,
 } from "../attachments/attachments.service.js";
 import { fileProxyUrl } from "../files/files.service.js";
 import { markRead as markNotificationsRead } from "../notifications/notifications.service.js";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../shared/errors/app-error.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  NotFoundError,
+} from "../../shared/errors/app-error.js";
 import { ErrorCode } from "../../shared/errors/error-codes.js";
 import { assertChannelMember } from "./channels.gates.js";
 import { fanOutAwareness, trackFanOut } from "./messages.awareness.js";
@@ -127,7 +134,15 @@ async function insertAttachments(
       `INSERT INTO attachments (message_id, s3_key, url, filename, content_type, size_bytes, category)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING ${ATTACHMENT_COLUMNS}`,
-      [messageId, a.s3Key, a.url, a.filename, a.contentType, a.sizeBytes, a.category],
+      [
+        messageId,
+        a.s3Key,
+        a.url,
+        a.filename,
+        a.contentType,
+        a.sizeBytes,
+        a.category,
+      ],
     );
     wires.push(toAttachmentWire(rows[0]!));
   }
@@ -139,7 +154,10 @@ async function insertAttachments(
  * Withheld (set to `[]`) for departed authors, mirroring the body/identity
  * hiding in `toWire`.
  */
-async function attachAttachments(db: PoolClient, wires: MessageWire[]): Promise<void> {
+async function attachAttachments(
+  db: PoolClient,
+  wires: MessageWire[],
+): Promise<void> {
   const ids = wires.filter((w) => w.authorActive !== false).map((w) => w.id);
   const byMessage = new Map<string, AttachmentWire[]>();
   if (ids.length > 0) {
@@ -161,7 +179,10 @@ async function attachAttachments(db: PoolClient, wires: MessageWire[]): Promise<
 }
 
 /** Load one message's attachments (idempotent-send path). */
-async function loadAttachments(db: PoolClient, messageId: string): Promise<AttachmentWire[]> {
+async function loadAttachments(
+  db: PoolClient,
+  messageId: string,
+): Promise<AttachmentWire[]> {
   const { rows } = await db.query<AttachmentRow>(
     `SELECT ${ATTACHMENT_COLUMNS} FROM attachments WHERE message_id = $1 ORDER BY created_at ASC`,
     [messageId],
@@ -169,7 +190,28 @@ async function loadAttachments(db: PoolClient, messageId: string): Promise<Attac
   return rows.map(toAttachmentWire);
 }
 
-/** Lock the channel row and return the next gapless clock value. */
+/**
+ * Take this channel's row lock for the rest of the transaction.
+ *
+ * Every write path calls this FIRST, before reading anything it intends to act on.
+ * `bumpClock`'s UPDATE would acquire the same lock on its own, but only at that
+ * moment — anything read earlier (the idempotency lookup, a message's current
+ * version) would have been read unprotected and could be stale by the time it's
+ * used. Locking up front also gives all three writes one uniform acquisition order
+ * (channel before message/revision/attachment rows), which is what keeps them
+ * deadlock-free as the transactions grow.
+ */
+async function lockChannel(db: PoolClient, channelId: string): Promise<void> {
+  await db.query(`SELECT 1 FROM channels WHERE id = $1 FOR UPDATE`, [
+    channelId,
+  ]);
+}
+
+/**
+ * Advance the channel's change clock and return the new value. Callers already hold
+ * the channel row lock via `lockChannel`, which is what serializes concurrent writers
+ * and keeps the sequence gapless.
+ */
 async function bumpClock(db: PoolClient, channelId: string): Promise<number> {
   const { rows } = await db.query<{ last_seq: number }>(
     `UPDATE channels SET last_seq = last_seq + 1 WHERE id = $1 RETURNING last_seq`,
@@ -187,7 +229,11 @@ export async function sendMessage(
   workspaceId: string,
   channelId: string,
   userId: string,
-  input: { clientId: string; body: string; attachments?: { key: string; filename: string }[] },
+  input: {
+    clientId: string;
+    body: string;
+    attachments?: { key: string; filename: string }[];
+  },
 ): Promise<MessageWire> {
   // Verify + resolve attachments BEFORE the tx (S3 HEAD + ownership + policy):
   // the stored type/size is S3-authoritative and a bad/incomplete upload fails
@@ -199,45 +245,51 @@ export async function sendMessage(
     input.attachments ?? [],
   );
 
-  const { message, created } = await withTenantSchema(workspaceId, async (db) => {
-    await assertChannelMember(db, channelId, userId);
+  const { message, created } = await withTenantSchema(
+    workspaceId,
+    async (db) => {
+      await assertChannelMember(db, channelId, userId);
 
-    // Serialize this channel's writers: hold the row lock for the whole tx so
-    // the idempotency check and the seq bump can't interleave.
-    await db.query(`SELECT 1 FROM channels WHERE id = $1 FOR UPDATE`, [channelId]);
+      // Before the idempotency lookup: it and the seq bump must not interleave.
+      await lockChannel(db, channelId);
 
-    const existing = await db.query<MessageRow>(
-      `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE channel_id = $1 AND client_id = $2`,
-      [channelId, input.clientId],
-    );
-    if (existing.rows[0]) {
-      const wire = toWire(existing.rows[0]);
-      wire.attachments = await loadAttachments(db, wire.id);
-      return { message: wire, created: false };
-    }
+      const existing = await db.query<MessageRow>(
+        `SELECT ${MESSAGE_COLUMNS} FROM messages WHERE channel_id = $1 AND client_id = $2`,
+        [channelId, input.clientId],
+      );
+      if (existing.rows[0]) {
+        const wire = toWire(existing.rows[0]);
+        wire.attachments = await loadAttachments(db, wire.id);
+        return { message: wire, created: false };
+      }
 
-    const seq = await bumpClock(db, channelId);
-    const { rows } = await db.query<MessageRow>(
-      `INSERT INTO messages (channel_id, author_id, body, client_id, seq, updated_seq)
+      const seq = await bumpClock(db, channelId);
+      const { rows } = await db.query<MessageRow>(
+        `INSERT INTO messages (channel_id, author_id, body, client_id, seq, updated_seq)
        VALUES ($1, $2, $3, $4, $5, $5)
        RETURNING ${MESSAGE_COLUMNS}`,
-      [channelId, userId, input.body, input.clientId, seq],
-    );
-    // Unread is `channels.last_seq - channel_members.last_read_seq`, so the bump
-    // above counts the author's own message against them. Advance their cursor in
-    // the same tx: "you have read what you just wrote" is an invariant, not
-    // something to leave to a best-effort mark-read from the client.
-    await db.query(
-      `UPDATE channel_members
+        [channelId, userId, input.body, input.clientId, seq],
+      );
+      // Unread is `channels.last_seq - channel_members.last_read_seq`, so the bump
+      // above counts the author's own message against them. Advance their cursor in
+      // the same tx: "you have read what you just wrote" is an invariant, not
+      // something to leave to a best-effort mark-read from the client.
+      await db.query(
+        `UPDATE channel_members
           SET last_read_seq = GREATEST(last_read_seq, $1)
         WHERE channel_id = $2 AND user_id = $3`,
-      [seq, channelId, userId],
-    );
+        [seq, channelId, userId],
+      );
 
-    const wire = toWire(rows[0]!);
-    wire.attachments = await insertAttachments(db, wire.id, resolvedAttachments);
-    return { message: wire, created: true };
-  });
+      const wire = toWire(rows[0]!);
+      wire.attachments = await insertAttachments(
+        db,
+        wire.id,
+        resolvedAttachments,
+      );
+      return { message: wire, created: true };
+    },
+  );
 
   if (created) {
     await hub.publish(workspaceId, {
@@ -323,7 +375,11 @@ export async function editMessage(
   channelId: string,
   messageId: string,
   userId: string,
-  input: { body: string; keepAttachmentIds?: string[]; attachments?: { key: string; filename: string }[] },
+  input: {
+    body: string;
+    keepAttachmentIds?: string[];
+    attachments?: { key: string; filename: string }[];
+  },
 ): Promise<MessageWire> {
   // Verify + resolve new uploads before the tx (S3 HEAD + ownership + policy).
   const newAttachments = await resolveAttachmentsForSend(
@@ -335,6 +391,10 @@ export async function editMessage(
 
   const message = await withTenantSchema(workspaceId, async (db) => {
     await assertChannelMember(db, channelId, userId);
+    // Before reading `version`: the revision insert below is keyed on it, so two
+    // concurrent edits reading the same version would collide on the revisions
+    // primary key. Under the lock the second edit re-reads the committed version.
+    await lockChannel(db, channelId);
     const current = await loadOwnedMessage(db, channelId, messageId, userId);
 
     // Preserve the outgoing version so full edit history is reconstructable.
@@ -361,7 +421,8 @@ export async function editMessage(
       [input.body, seq, messageId],
     );
     const wire = toWire(rows[0]!);
-    if (newAttachments.length > 0) await insertAttachments(db, messageId, newAttachments);
+    if (newAttachments.length > 0)
+      await insertAttachments(db, messageId, newAttachments);
     // Carry the final attachment set on the wire, or the updated row (response +
     // `message.updated` broadcast) would clobber it out of every client's cache.
     wire.attachments = await loadAttachments(db, messageId);
@@ -393,6 +454,7 @@ export async function deleteMessage(
 ): Promise<MessageWire> {
   const message = await withTenantSchema(workspaceId, async (db) => {
     await assertChannelMember(db, channelId, userId);
+    await lockChannel(db, channelId);
     await loadOwnedMessage(db, channelId, messageId, userId);
     const seq = await bumpClock(db, channelId);
     const { rows } = await db.query<MessageRow>(
@@ -453,7 +515,12 @@ export async function markRead(
   // this one signal makes divergence impossible. Normally updates zero rows.
   await markNotificationsRead(userId, { channelId });
 
-  await hub.publish(workspaceId, { kind: "channel.read", channelId, userId, lastReadSeq });
+  await hub.publish(workspaceId, {
+    kind: "channel.read",
+    channelId,
+    userId,
+    lastReadSeq,
+  });
   return { lastReadSeq };
 }
 
@@ -473,7 +540,10 @@ async function loadOwnedMessage(
     throw new NotFoundError("Message not found", ErrorCode.MessageNotFound);
   }
   if (message.author_id !== userId) {
-    throw new ForbiddenError("You can only modify your own messages", ErrorCode.NotMessageAuthor);
+    throw new ForbiddenError(
+      "You can only modify your own messages",
+      ErrorCode.NotMessageAuthor,
+    );
   }
   return message;
 }

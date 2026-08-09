@@ -8,7 +8,9 @@ vi.mock("@/lib/api", () => ({ apiFetch: vi.fn().mockResolvedValue({ lastReadSeq:
 import { apiFetch } from "@/lib/api";
 import { historyKey, messagesKey } from "./keys";
 import {
+  useDeleteMessage,
   useDiscardFailed,
+  useEditMessage,
   useMarkRead,
   useMessages,
   useRetrySend,
@@ -150,5 +152,126 @@ describe("failed send recovery", () => {
 
     expect(rows(qc)).toHaveLength(0);
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Edits and deletes apply optimistically like sends do, so the timeline reacts
+ * the moment you act rather than after a round trip. What needs pinning down is
+ * the undo: it must restore only the row it touched, and it must NOT fire when
+ * the change actually landed and the socket already showed it.
+ */
+describe("optimistic edit + delete", () => {
+  const rows = (qc: QueryClient) =>
+    qc.getQueryData<EchoMessage[]>(messagesKey("w1", "c1")) ?? [];
+
+  const seed = (): EchoMessage[] => [
+    {
+      id: "m1",
+      channelId: "c1",
+      authorId: "me",
+      body: "before",
+      clientId: "cid-1",
+      attachments: [],
+      seq: 1,
+      updatedSeq: 1,
+      version: 1,
+      deleted: false,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: null,
+    },
+    {
+      id: "m2",
+      channelId: "c1",
+      authorId: "them",
+      body: "untouched",
+      clientId: "cid-2",
+      attachments: [],
+      seq: 2,
+      updatedSeq: 2,
+      version: 1,
+      deleted: false,
+      createdAt: new Date(1).toISOString(),
+      updatedAt: null,
+    },
+  ];
+
+  function seeded() {
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    qc.setQueryData(messagesKey("w1", "c1"), seed());
+    return qc;
+  }
+
+  it("shows the edited body immediately, dimmed, before the server replies", async () => {
+    const qc = seeded();
+    let resolve!: (v: unknown) => void;
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise((r) => (resolve = r)));
+
+    const { result } = renderHook(() => useEditMessage("w1", "c1"), {
+      wrapper: clientWrapper(qc),
+    });
+    result.current.mutate({ messageId: "m1", body: "after" });
+
+    await waitFor(() => expect(rows(qc)[0]!.body).toBe("after"));
+    expect(rows(qc)[0]!.pending).toBe(true);
+
+    resolve({ ...seed()[0]!, body: "after", version: 2, updatedSeq: 3 });
+    await waitFor(() => expect(rows(qc)[0]!.pending).toBeFalsy());
+    expect(rows(qc)[0]!.version).toBe(2);
+  });
+
+  it("rolls the edit back on failure without disturbing other rows", async () => {
+    const qc = seeded();
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error("offline"));
+
+    const { result } = renderHook(() => useEditMessage("w1", "c1"), {
+      wrapper: clientWrapper(qc),
+    });
+    result.current.mutate({ messageId: "m1", body: "after" });
+
+    await waitFor(() => expect(rows(qc)[0]!.body).toBe("before"));
+    expect(rows(qc)[0]!.pending).toBeFalsy();
+    // NOT `failed` — that flag renders "failed to send" with a POST retry.
+    expect(rows(qc)[0]!.failed).toBeFalsy();
+    expect(rows(qc)[1]!.body).toBe("untouched");
+  });
+
+  it("keeps the socket's version when a failed edit actually landed", async () => {
+    const qc = seeded();
+    let reject!: (e: unknown) => void;
+    vi.mocked(apiFetch).mockReturnValueOnce(new Promise((_r, rj) => (reject = rj)));
+
+    const { result } = renderHook(() => useEditMessage("w1", "c1"), {
+      wrapper: clientWrapper(qc),
+    });
+    result.current.mutate({ messageId: "m1", body: "after" });
+    await waitFor(() => expect(rows(qc)[0]!.pending).toBe(true));
+
+    // The write committed and the broadcast beat the (doomed) HTTP response.
+    qc.setQueryData<EchoMessage[]>(messagesKey("w1", "c1"), (old) =>
+      (old ?? []).map((m) =>
+        m.id === "m1" ? { ...m, body: "after", version: 2, updatedSeq: 3, pending: false } : m,
+      ),
+    );
+    reject(new Error("timeout"));
+
+    // The clock moved, so the rollback must stand down.
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(rows(qc)[0]!.body).toBe("after");
+    expect(rows(qc)[0]!.updatedSeq).toBe(3);
+  });
+
+  it("tombstones a deleted row immediately and restores it on failure", async () => {
+    const qc = seeded();
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error("offline"));
+
+    const { result } = renderHook(() => useDeleteMessage("w1", "c1"), {
+      wrapper: clientWrapper(qc),
+    });
+    result.current.mutate("m1");
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(rows(qc)[0]!.deleted).toBe(false);
+    expect(rows(qc)[0]!.body).toBe("before");
   });
 });
