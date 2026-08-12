@@ -13,6 +13,9 @@ WORKDIR /repo
 COPY package.json bun.lock ./
 COPY echo-server/package.json echo-server/
 COPY echo-front/package.json echo-front/
+# Not run in the image, but the root workspace list names it — bun resolves every
+# workspace manifest up front, and --frozen-lockfile fails if one is missing.
+COPY echo-mcp/package.json echo-mcp/
 RUN bun install --frozen-lockfile
 
 # ── Build the frontend (emits echo-front/dist) ─────────────────────────────────
