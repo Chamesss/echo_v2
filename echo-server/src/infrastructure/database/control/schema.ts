@@ -147,6 +147,12 @@ export const workspaces = pgTable("workspaces", {
   ownerId: text("owner_id")
     .notNull()
     .references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const memberships = pgTable(
@@ -191,10 +197,14 @@ export const inviteTokens = pgTable(
     email: text("email").notNull(),
     role: roleEnum("role").notNull().default("member"),
     tokenHash: text("token_hash").notNull().unique(),
-    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    invitedBy: text("invited_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [
     index("invite_tokens_workspace_idx").on(t.workspaceId),
@@ -269,7 +279,9 @@ export const notifications = pgTable(
     messageId: uuid("message_id").notNull(),
     // Reserved for the future tag/important system; unused for now.
     important: boolean("important").notNull().default(false),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     seenAt: timestamp("seen_at", { withTimezone: true }),
     readAt: timestamp("read_at", { withTimezone: true }),
   },

@@ -2,7 +2,12 @@
   "name": "echo-workspace",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["echo-server", "echo-front", "packages/*"],
+  "workspaces": [
+    "echo-server",
+    "echo-front",
+    "echo-mcp",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "concurrently -n front,server,studio -c green,blue,magenta \"bun run --filter echo-front dev\" \"bun run --filter echo-server dev\" \"bun run --filter echo-server db:studio\"",
     "dev:app": "concurrently -n front,server -c green,blue \"bun run --filter echo-front dev\" \"bun run --filter echo-server dev\"",
@@ -14,7 +19,8 @@
     "build": "bun run --filter echo-front build",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "mcp": "bun run echo-mcp/src/server.ts"
   },
   "overrides": {
     "esbuild": "^0.25.0"

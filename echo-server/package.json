@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./db/control-schema": "./src/infrastructure/database/control/schema.ts"
+  },
   "scripts": {
     "dev": "bun --watch run src/server.ts",
     "start": "bun run src/server.ts",
